@@ -16,8 +16,8 @@
     stop    : 停止指定訂單的充電
 
 使用範例:
-    # 1. 開啟充電
-    uv run wincharge_cli.py start --payment-password "123456" --charger-id "wincharge_ocppv16_SAMPLE123"
+    # 1. 開啟充電 (含 Debug 模式)
+    uv run wincharge_cli.py --debug start --payment-password "123456" --charger-id "wincharge_ocppv16_SAMPLE123"
 
     # 2. 查詢狀態
     uv run wincharge_cli.py status 2400000000SAMPLE123
@@ -60,7 +60,7 @@ def translate_error(error_msg: str, status: Optional[int] = None) -> str:
     msg = str(error_msg).strip()
     explanation = ERROR_TRANSLATION_MAP.get(msg)
     status_str = f" (status: {status})" if status is not None else ""
-    
+
     if explanation:
         return f"{explanation} [{msg}]{status_str}"
     return f"{msg}{status_str}"
@@ -105,9 +105,10 @@ def validate_api_token(token: str) -> Dict[str, Any]:
 
 
 class WinChargeClient:
-    def __init__(self, api_key: str, api_token: str, api_uid: str):
+    def __init__(self, api_key: str, api_token: str, api_uid: str, debug: bool = False):
         # 驗證 JWT Token
         self.jwt_payload = validate_api_token(api_token)
+        self.debug = debug
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -125,6 +126,38 @@ class WinChargeClient:
         })
         self.session.cookies.set("i18n_redirected", "zh-TW")
 
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """發送 HTTP 請求並支援 --debug 詳細日誌列印"""
+        if self.debug:
+            print("\n" + "=" * 60)
+            print(f"🐛 [DEBUG REQUEST] HTTP {method.upper()} {url}")
+            merged_headers = {**self.session.headers, **kwargs.get("headers", {})}
+            print("▸ Headers:")
+            for k, v in merged_headers.items():
+                print(f"    {k}: {v}")
+            if "json" in kwargs:
+                print("▸ JSON Payload:")
+                print(json.dumps(kwargs["json"], indent=2, ensure_ascii=False))
+            elif "data" in kwargs:
+                print(f"▸ Data Payload:\n  {kwargs['data']}")
+            print("-" * 60)
+
+        response = self.session.request(method, url, **kwargs)
+
+        if self.debug:
+            print(f"🐛 [DEBUG RESPONSE] Status: {response.status_code} {response.reason}")
+            print("▸ Response Headers:")
+            for k, v in response.headers.items():
+                print(f"    {k}: {v}")
+            print("▸ Response Body:")
+            try:
+                print(json.dumps(response.json(), indent=2, ensure_ascii=False))
+            except Exception:
+                print(response.text)
+            print("=" * 60 + "\n")
+
+        return response
+
     # -------------------------------------------------------------------------
     # 帳號與預檢 API
     # -------------------------------------------------------------------------
@@ -134,12 +167,12 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/account"
         headers = {"referer": f"{BASE_URL}/user/account/settings"}
 
-        response = self.session.get(url, headers=headers)
+        response = self._request("GET", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"帳號資訊取得失敗: {err}")
 
         contact = data.get("contact", "")
@@ -153,12 +186,12 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/account/cards"
         headers = {"referer": f"{BASE_URL}/charger/{charger_id}"}
 
-        response = self.session.get(url, headers=headers)
+        response = self._request("GET", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"卡片列表取得失敗: {err}")
 
         cards = data.get("cards", [])
@@ -178,12 +211,12 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/account/invoice"
         headers = {"referer": f"{BASE_URL}/user/account/settings"}
 
-        response = self.session.get(url, headers=headers)
+        response = self._request("GET", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"發票設定取得失敗: {err}")
 
         invoice = data.get("invoice")
@@ -197,7 +230,7 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/chargers/{charger_id}?connector={connector}"
         headers = {"referer": f"{BASE_URL}/charger/{charger_id}"}
 
-        response = self.session.get(url, headers=headers)
+        response = self._request("GET", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
@@ -226,12 +259,12 @@ class WinChargeClient:
             "payment_password": payment_password,
         }
 
-        response = self.session.post(url, headers=headers, json=payload)
+        response = self._request("POST", url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"建立充電訂單失敗: {err}")
 
         return data
@@ -251,12 +284,12 @@ class WinChargeClient:
             "invoice": invoice_data,
         }
 
-        response = self.session.put(url, headers=headers, json=payload)
+        response = self._request("PUT", url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"發送啟動充電指令失敗: {err}")
 
         return data
@@ -266,7 +299,7 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/transactions/{order_id}"
         headers = {"referer": f"{BASE_URL}/transaction/{order_id}"}
 
-        response = self.session.get(url, headers=headers)
+        response = self._request("GET", url, headers=headers)
         response.raise_for_status()
         return response.json()
 
@@ -279,12 +312,12 @@ class WinChargeClient:
             "content-length": "0",
         }
 
-        response = self.session.put(url, headers=headers)
+        response = self._request("PUT", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != 0:
-            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
             raise RuntimeError(f"停止充電失敗: {err}")
 
         return data
@@ -430,6 +463,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("WINCHARGE_API_UID"),
         help="API UID (可透過環境變數 WINCHARGE_API_UID 設定)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="可用的子指令", required=True)
 
@@ -499,6 +537,7 @@ def main():
             api_key=args.api_key,
             api_token=args.api_token,
             api_uid=args.api_uid,
+            debug=args.debug,
         )
     except ValueError as val_err:
         print(f"❌ JWT 認證頭驗證失敗: {val_err}", file=sys.stderr)

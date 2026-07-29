@@ -11,28 +11,28 @@
 
 ## ⚡ 快速使用方式 (Quick Start)
 
-無需複製 (clone) 專案即可透過 `uv` 或 `uvx` 立即執行：
+無需複製 (clone) 專案即可透過 `uv` 或 `uvx` 獨立執行：
 
 ### 1. 透過 `uvx` 整合 GitHub 專案執行 (最推薦)
 ```bash
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli start
 ```
 
-### 2. 透過 `uv run` 遠端腳本執行
+### 2. 開啟 `--debug` 模式觀看完整 Raw HTTP Request / Response
 ```bash
-uv run https://raw.githubusercontent.com/shuangrain/wincharge-cli/main/wincharge_cli.py start
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --debug start
 ```
 
 ### 3. 本機 Clone 或下載單檔執行
 ```bash
-uv run wincharge_cli.py start
+uv run wincharge_cli.py --debug start
 ```
 
 ---
 
 ## 🏗️ 指令架構 (Subcommand Structure)
 
-本工具支援三個主要子指令，架構如下：
+本工具支援三個主要子指令與 Debug 調試功能，架構如下：
 
 ```mermaid
 graph TD
@@ -143,8 +143,9 @@ export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 進行完整的預檢與啟動流程：
 
 ```bash
-# 透過 uvx 遠端執行
+# 透過 uvx 遠端執行 (含 Debug 模式觀看 Raw Request / Response)
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
+  --debug \
   --api-key "YOUR_API_KEY" \
   --api-token "YOUR_API_TOKEN" \
   --api-uid "YOUR_API_UID" \
@@ -156,7 +157,7 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
 **若本機執行單檔案：**
 
 ```bash
-uv run wincharge_cli.py start
+uv run wincharge_cli.py --debug start
 ```
 
 ---
@@ -187,7 +188,7 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli sto
 
 ```text
 usage: wincharge-cli [-h] [--api-key API_KEY] [--api-token API_TOKEN]
-                     [--api-uid API_UID]
+                     [--api-uid API_UID] [--debug]
                      {start,status,stop} ...
 
 WinCharge 充電樁 CLI 控制工具 (PEP 723)
@@ -204,4 +205,5 @@ options:
   --api-token API_TOKEN
                         API Token (可透過環境變數 WINCHARGE_API_TOKEN 設定)
   --api-uid API_UID     API UID (可透過環境變數 WINCHARGE_API_UID 設定)
+  --debug               開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊
 ```
