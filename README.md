@@ -41,9 +41,7 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 
 ## 🏠 Home Assistant (HA) 整合指南
 
-本專案原生支援 **HACS 自訂儲存庫 (Custom Repository)** 一鍵圖形化安裝與傳統 YAML 設定兩寫法。
-
-### 方法 A：透過 HACS 自訂儲存庫安裝 (最推薦 ⭐)
+本專案原生支援 **HACS 自訂儲存庫 (Custom Repository)** 圖形化安裝。
 
 1. 開啟 Home Assistant 的 **HACS** 介面。
 2. 點擊右上角三點選單 ➔ 選擇 **「Custom repositories (自訂儲存庫)」**。
@@ -52,62 +50,6 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 5. 點擊搜尋到的 **WinCharge 充電樁控制** ➔ 點擊 **【下載 (Download)】**。
 6. 重新啟動 Home Assistant。
 7. 前往 **設定 ➔ 裝置與服務 ➔ 新增整合**，搜尋 **WinCharge**，透過 UI 視窗輸入金鑰即可完成設定！
-
----
-
-### 方法 B：傳統 YAML 整合
-
-本工具支援 `--json` 參數與 **線上活躍訂單自動搜尋**。當在 HA 中啟動充電時，`order_id` 會被自動線上抓取，查詢狀態或停止充電時**無需手動帶入 Order ID**！
-
-#### 1. 在 HA `secrets.yaml` 中新增密碼與認證
-```yaml
-wincharge_api_key: "YOUR_API_KEY"
-wincharge_api_token: "YOUR_API_TOKEN"
-wincharge_api_uid: "YOUR_API_UID"
-wincharge_payment_password: "YOUR_PAYMENT_PASSWORD"
-```
-
-#### 2. 在 HA `configuration.yaml` 設定按鈕與感測器
-
-```yaml
-# 1. 控制動作 (Shell Command)
-shell_command:
-  wincharge_start: >
-    uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
-      --api-key "!secret wincharge_api_key" \
-      --api-token "!secret wincharge_api_token" \
-      --api-uid "!secret wincharge_api_uid" \
-      start \
-      --payment-password "!secret wincharge_payment_password" \
-      --charger-id "wincharge_ocppv16_SAMPLE123"
-
-  wincharge_stop: >
-    uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
-      --api-key "!secret wincharge_api_key" \
-      --api-token "!secret wincharge_api_token" \
-      --api-uid "!secret wincharge_api_uid" \
-      stop
-
-# 2. 充電狀態感測器 (Command Line Sensor)
-command_line:
-  - sensor:
-      name: "充電樁狀態"
-      unique_id: wincharge_status_sensor
-      command: >
-        uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
-          --api-key "!secret wincharge_api_key" \
-          --api-token "!secret wincharge_api_token" \
-          --api-uid "!secret wincharge_api_uid" \
-          --json status
-      value_template: "{{ value_json.state_desc }}"
-      json_attributes:
-        - order_id
-        - energy_kwh
-        - fee
-        - duration
-        - charger
-      scan_interval: 30
-```
 
 ---
 
