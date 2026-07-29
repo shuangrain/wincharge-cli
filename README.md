@@ -4,7 +4,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/shuangrain/wincharge-cli?color=blue)](https://github.com/shuangrain/wincharge-cli/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
 
-基於 **PEP 723 (Inline Script Metadata)** 規範與標準 Python Package 撰寫的充電樁 CLI 控制腳本，支援自動安裝相依套件（如 `requests`），可用於自動化開啟充電、查詢充電進度與停止充電。
+基於 **PEP 723 (Inline Script Metadata)** 規範與標準 Python Package 撰寫的充電樁 CLI 控制腳本，支援自動安裝相依套件（如 `requests`），可用於自動化開啟充電、查詢充電進度、停止充電與查詢歷史充電紀錄。
 
 > [!WARNING]
 > **⚠️ 免責聲明 (Disclaimer)**  
@@ -22,12 +22,17 @@
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli start
 ```
 
-### 2. 開啟 `--debug` 模式觀看完整 Raw HTTP Request / Response
+### 2. 查詢帳號歷史充電交易紀錄 (`history`)
+```bash
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli history --count 10
+```
+
+### 3. 開啟 `--debug` 模式觀看完整 Raw HTTP Request / Response
 ```bash
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --debug start
 ```
 
-### 3. 輸出乾淨 JSON 格式 (適合 Home Assistant / 腳本串接)
+### 4. 輸出乾淨 JSON 格式 (適合 Home Assistant / 腳本串接)
 ```bash
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --json status
 ```
@@ -52,7 +57,7 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 
 ### 方法 B：傳統 YAML 整合
 
-本工具支援 `--json` 參數與 **自動訂單紀錄快取 (`~/.wincharge_last_order`)**。當在 HA 中啟動充電時，`order_id` 會被自動記錄，查詢狀態或停止充電時**無需手動帶入 Order ID**！
+本工具支援 `--json` 參數與 **線上活躍訂單自動搜尋**。當在 HA 中啟動充電時，`order_id` 會被自動線上抓取，查詢狀態或停止充電時**無需手動帶入 Order ID**！
 
 #### 1. 在 HA `secrets.yaml` 中新增密碼與認證
 ```yaml
@@ -97,7 +102,7 @@ command_line:
       value_template: "{{ value_json.state_desc }}"
       json_attributes:
         - order_id
-        - energy
+        - energy_kwh
         - fee
         - duration
         - charger
@@ -108,7 +113,7 @@ command_line:
 
 ## 🏗️ 指令架構 (Subcommand Structure)
 
-本工具支援三個主要子指令與 Debug / JSON 調試功能，架構如下：
+本工具支援四個子指令與 Debug / JSON 調試功能，架構如下：
 
 ```mermaid
 graph TD
@@ -116,9 +121,10 @@ graph TD
     
     AuthCheck --> Subcommands{"選擇子指令"}
     
-    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化流程 & 自動記錄 Order ID)"]
-    Subcommands -->|"status"| StatusFlow["查詢充電狀態 (自動帶入上次 Order ID)"]
-    Subcommands -->|"stop"| StopFlow["停止充電 (自動帶入上次 Order ID)"]
+    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化流程)"]
+    Subcommands -->|"status"| StatusFlow["查詢充電狀態 (線上自動抓取活躍 Order ID)"]
+    Subcommands -->|"stop"| StopFlow["停止充電 (線上自動抓取活躍 Order ID)"]
+    Subcommands -->|"history"| HistoryFlow["查詢歷史充電交易紀錄 (支援分頁)"]
 ```
 
 ---
@@ -219,15 +225,17 @@ export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 ```text
 usage: wincharge-cli [-h] [--api-key API_KEY] [--api-token API_TOKEN]
                      [--api-uid API_UID] [--debug] [--json]
-                     {start,status,stop} ...
+                     {start,status,stop,history} ...
 
 WinCharge 充電樁 CLI 控制工具 (PEP 723)
 
 positional arguments:
-  {start,status,stop}   可用的子指令
+  {start,status,stop,history}
+                        可用的子指令
     start               開啟充電作業
     status              查詢充電狀態
     stop                停止充電作業
+    history             查詢歷史充電紀錄
 
 options:
   -h, --help            show this help message and exit
