@@ -39,7 +39,8 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
 import requests
 
 BASE_URL = "https://new-home.wincharge.net"
@@ -55,7 +56,7 @@ ERROR_TRANSLATION_MAP = {
 }
 
 
-def translate_error(error_msg: str, status: Optional[int] = None) -> str:
+def translate_error(error_msg: str, status: int | None = None) -> str:
     """將 API 錯誤代碼翻譯為易懂的中文訊息"""
     msg = str(error_msg).strip()
     explanation = ERROR_TRANSLATION_MAP.get(msg)
@@ -66,7 +67,7 @@ def translate_error(error_msg: str, status: Optional[int] = None) -> str:
     return f"{msg}{status_str}"
 
 
-def validate_api_token(token: str) -> Dict[str, Any]:
+def validate_api_token(token: str) -> dict[str, Any]:
     """解碼並驗證 API Token (JWT) 的有效性"""
     parts = token.strip().split(".")
     if len(parts) != 3:
@@ -80,8 +81,8 @@ def validate_api_token(token: str) -> Dict[str, Any]:
     try:
         payload_bytes = base64.urlsafe_b64decode(payload_b64)
         payload = json.loads(payload_bytes.decode("utf-8"))
-    except Exception as e:
-        raise ValueError(f"API Token 解碼失敗: {e}")
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+        raise ValueError(f"API Token 解碼失敗: {e}") from e
 
     # 1. 驗證發行者 (iss)
     iss = payload.get("iss")
@@ -111,19 +112,21 @@ class WinChargeClient:
         self.debug = debug
 
         self.session = requests.Session()
-        self.session.headers.update({
-            "accept": "application/json, text/plain, */*",
-            "accept-language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-            "cache-control": "no-cache",
-            "pragma": "no-cache",
-            "user-agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
-            ),
-            "x-api-key": api_key,
-            "x-api-token": api_token,
-            "x-api-uid": api_uid,
-        })
+        self.session.headers.update(
+            {
+                "accept": "application/json, text/plain, */*",
+                "accept-language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+                "cache-control": "no-cache",
+                "pragma": "no-cache",
+                "user-agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+                ),
+                "x-api-key": api_key,
+                "x-api-token": api_token,
+                "x-api-uid": api_uid,
+            }
+        )
         self.session.cookies.set("i18n_redirected", "zh-TW")
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
@@ -152,7 +155,7 @@ class WinChargeClient:
             print("▸ Response Body:")
             try:
                 print(json.dumps(response.json(), indent=2, ensure_ascii=False))
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 print(response.text)
             print("=" * 60 + "\n")
 
@@ -162,7 +165,7 @@ class WinChargeClient:
     # 帳號與預檢 API
     # -------------------------------------------------------------------------
 
-    def get_account_info(self) -> Dict[str, Any]:
+    def get_account_info(self) -> dict[str, Any]:
         """Step 1: 取得帳號資訊並驗證 contact 欄位"""
         url = f"{BASE_URL}/api/account"
         headers = {"referer": f"{BASE_URL}/user/account/settings"}
@@ -206,7 +209,7 @@ class WinChargeClient:
 
         return card_id
 
-    def get_invoice_setting(self) -> Dict[str, Any]:
+    def get_invoice_setting(self) -> dict[str, Any]:
         """Step 3: 取得發票設定資訊"""
         url = f"{BASE_URL}/api/account/invoice"
         headers = {"referer": f"{BASE_URL}/user/account/settings"}
@@ -225,7 +228,7 @@ class WinChargeClient:
 
         return invoice
 
-    def get_charger_info(self, charger_id: str, connector: str = "") -> Dict[str, Any]:
+    def get_charger_info(self, charger_id: str, connector: str = "") -> dict[str, Any]:
         """Step 4: 查詢充電樁即時狀態與站點資訊"""
         url = f"{BASE_URL}/api/chargers/{charger_id}?connector={connector}"
         headers = {"referer": f"{BASE_URL}/charger/{charger_id}"}
@@ -245,7 +248,7 @@ class WinChargeClient:
 
     def create_transaction_order(
         self, charger_id: str, card_id: str, payment_password: str, connector: str = ""
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Step 5: 建立交易訂單，取得 order_id"""
         url = f"{BASE_URL}/api/chargers/{charger_id}/transactions?connector={connector}"
         headers = {
@@ -269,9 +272,7 @@ class WinChargeClient:
 
         return data
 
-    def start_transaction(
-        self, order_id: str, phone: str, invoice_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def start_transaction(self, order_id: str, phone: str, invoice_data: dict[str, Any]) -> dict[str, Any]:
         """Step 6: 對 order_id 發送 PUT /start 正式開啟充電"""
         url = f"{BASE_URL}/api/transactions/{order_id}/start"
         headers = {
@@ -294,7 +295,7 @@ class WinChargeClient:
 
         return data
 
-    def get_transaction_status(self, order_id: str) -> Dict[str, Any]:
+    def get_transaction_status(self, order_id: str) -> dict[str, Any]:
         """查詢交易/充電狀態"""
         url = f"{BASE_URL}/api/transactions/{order_id}"
         headers = {"referer": f"{BASE_URL}/transaction/{order_id}"}
@@ -303,7 +304,7 @@ class WinChargeClient:
         response.raise_for_status()
         return response.json()
 
-    def stop_transaction(self, order_id: str) -> Dict[str, Any]:
+    def stop_transaction(self, order_id: str) -> dict[str, Any]:
         """停止充電交易"""
         url = f"{BASE_URL}/api/transactions/{order_id}/stop"
         headers = {
@@ -327,6 +328,7 @@ class WinChargeClient:
 # Subcommand 處理邏輯
 # -------------------------------------------------------------------------
 
+
 def handle_start(client: WinChargeClient, args: argparse.Namespace):
     """處理開啟充電完整流程"""
     charger_id = args.charger_id
@@ -334,7 +336,9 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
     payment_password = args.payment_password
 
     if not payment_password:
-        print("❌ 錯誤: 開始充電需要傳入 --payment-password 或設定 WINCHARGE_PAYMENT_PASSWORD 環境變數", file=sys.stderr)
+        print(
+            "❌ 錯誤: 開始充電需要傳入 --payment-password 或設定 WINCHARGE_PAYMENT_PASSWORD 環境變數", file=sys.stderr
+        )
         sys.exit(1)
 
     print("⚡ [1/6] 驗證帳號資訊...")
@@ -373,7 +377,7 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
         )
         sys.exit(1)
 
-    print(f"🔌 [5/6] 建立充電訂單...")
+    print("🔌 [5/6] 建立充電訂單...")
     order_res = client.create_transaction_order(
         charger_id=charger_id,
         card_id=card_id,
@@ -394,7 +398,9 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
     print(f"   ├─ 訂單編號 (Order ID)       : {start_res.get('order_id', order_id)}")
     print(f"   ├─ 交易編號 (Transaction ID) : {start_res.get('transaction_id')}")
     print(f"   ├─ 槍號 (Connector ID)       : {start_res.get('connector_id')}")
-    print(f"   ├─ 充電狀態 (Order State)    : {start_res.get('order_state_msg')} (Code: {start_res.get('order_state')})")
+    print(
+        f"   ├─ 充電狀態 (Order State)    : {start_res.get('order_state_msg')} (Code: {start_res.get('order_state')})"
+    )
     print(f"   ├─ 起始電表度數 (Meter Start): {start_res.get('meter_start')}")
     print(f"   └─ 回應訊息                  : {start_res.get('msg')}")
 
@@ -440,6 +446,7 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
 # -------------------------------------------------------------------------
 # CLI 參數解析與主進入點
 # -------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
