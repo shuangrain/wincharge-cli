@@ -73,6 +73,9 @@ class WinChargeStatusSensor(SensorEntity):
                 state_map = {1: "準備中", 2: "充電中", 3: "已結束"}
 
                 if state_code in (1, 2):
+                    raw_energy = float(res.get("energy", 0.0))
+                    energy_kwh = round(raw_energy / 1000.0, 3)
+
                     self._state = state_map.get(state_code, f"充電中 (Code {state_code})")
                     self._attributes = {
                         "order_id": order_id,
@@ -80,7 +83,8 @@ class WinChargeStatusSensor(SensorEntity):
                         "connector": res.get("connector"),
                         "started_timestamp": res.get("started"),
                         "duration_seconds": res.get("duration"),
-                        "energy_kwh": res.get("energy"),
+                        "energy_kwh": energy_kwh,
+                        "energy_wh": raw_energy,
                         "fee_ntd": res.get("fee"),
                         "fee_of_unit": res.get("fee_of_unit"),
                         "fee_description": res.get("fee_description"),
@@ -130,14 +134,15 @@ class WinChargeEnergySensor(SensorEntity):
         return self._state
 
     def update(self) -> None:
-        """更新已充電度數。"""
+        """更新已充電度數 (自動除以 1000 換算為 kWh)。"""
         order_id = load_last_order()
         if not order_id:
             self._state = 0.0
             return
         try:
             res = self._client.get_transaction_status(order_id)
-            self._state = float(res.get("energy", 0.0))
+            raw_energy = float(res.get("energy", 0.0))
+            self._state = round(raw_energy / 1000.0, 3)
         except Exception:
             pass
 

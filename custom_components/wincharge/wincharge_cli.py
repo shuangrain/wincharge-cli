@@ -445,8 +445,11 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
     state_code = res.get("state")
     state_desc = state_map.get(state_code, f"未知狀態 ({state_code})")
 
+    raw_energy = float(res.get("energy", 0.0))
+    energy_kwh = round(raw_energy / 1000.0, 3)
+
     if args.json:
-        output = {**res, "order_id": order_id, "state_desc": state_desc}
+        output = {**res, "order_id": order_id, "state_desc": state_desc, "energy_kwh": energy_kwh}
         print(json.dumps(output, ensure_ascii=False))
     else:
         print("\n📊 充電狀態回報：")
@@ -455,7 +458,7 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
         print(f"   ├─ 槍號 (Connector)     : {res.get('connector')}")
         print(f"   ├─ 狀態 (State)         : {state_desc}")
         print(f"   ├─ 已充電時間 (Duration): {res.get('duration')} 秒")
-        print(f"   ├─ 已充電度數 (Energy)  : {res.get('energy')} kWh")
+        print(f"   ├─ 已充電度數 (Energy)  : {energy_kwh} kWh ({raw_energy} Wh)")
         print(f"   ├─ 當前費用 (Fee)       : NT$ {res.get('fee')}")
         print(f"   └─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
 
@@ -478,8 +481,11 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
     res = client.stop_transaction(order_id)
     data = res.get("data", {})
 
+    raw_energy = float(data.get("energy", 0.0))
+    energy_kwh = round(raw_energy / 1000.0, 3)
+
     if args.json:
-        output = {**res, "order_id": order_id}
+        output = {**res, "order_id": order_id, "energy_kwh": energy_kwh}
         print(json.dumps(output, ensure_ascii=False))
     else:
         print("\n✅ 充電已成功停止！")
@@ -487,7 +493,7 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
         print(f"   ├─ 狀態 (State)             : State {data.get('state')}")
         print(f"   ├─ 充電時間 (Start ~ End)   : {data.get('start_time')} ~ {data.get('end_time')}")
         print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
-        print(f"   ├─ 總充電度數 (Energy)      : {data.get('energy')} kWh")
+        print(f"   ├─ 總充電度數 (Energy)      : {energy_kwh} kWh ({raw_energy} Wh)")
         print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
 
 
