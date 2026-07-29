@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -12,11 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-try:
-    from wincharge_cli import WinChargeClient, load_last_order
-except ImportError:
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
-    from wincharge_cli import WinChargeClient, load_last_order
+from .wincharge_cli import WinChargeClient, load_last_order
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
