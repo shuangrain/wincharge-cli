@@ -49,7 +49,27 @@ class WinChargeStartButton(ButtonEntity):
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         payment_password = self._config["payment_password"]
 
+        # 防護 1：檢查最新訂單是否正處於充電中
+        last_order = load_last_order()
+        if last_order:
+            try:
+                status_res = self._client.get_transaction_status(last_order)
+                if status_res.get("state") == 2:  # 2: 充電中
+                    _LOGGER.warning(
+                        "⚠️ 充電樁目前正處於充電狀態中 (Order ID: %s)，已自動攔截重複啟動請求！",
+                        last_order,
+                    )
+                    return
+            except Exception:
+                pass
+
         try:
+            # 防護 2：檢查充電樁即時可用狀態
+            charger_info = self._client.get_charger_info(charger_id)
+            if not charger_info.get("available", True):
+                _LOGGER.warning("⚠️ 充電樁 [%s] 當前顯示為不可用 (告警或使用中)，自動中斷啟動請求！", charger_id)
+                return
+
             account = self._client.get_account_info()
             phone = account.get("contact")
             card_id = self._client.get_primary_card_id(charger_id)
