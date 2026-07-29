@@ -1,0 +1,12 @@
+{
+  "domain": "wincharge",
+  "name": "WinCharge 充電樁控制",
+  "codeowners": ["@shuangrain"],
+  "config_flow": true,
+  "documentation": "https://github.com/shuangrain/wincharge-cli",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/shuangrain/wincharge-cli/issues",
+  "requirements": ["requests>=2.28.0"],
+  "version": "0.1.0"
+}
