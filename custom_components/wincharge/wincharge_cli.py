@@ -35,6 +35,11 @@ ERROR_TRANSLATION_MAP = {
     "ERROR_UNAUTHORIZED": "認證標頭失效或 Token 已過期",
 }
 
+STATUS_TRANSLATION_MAP = {
+    64: "交易密碼驗證失敗，請確認輸入的交易密碼 (payment_password) 是否正確",
+    17: "充電樁目前正由其他使用者佔用或正在充電中",
+}
+
 
 def save_last_order(order_id: str) -> None:
     """將最新的 order_id 寫入本機快取檔案"""
@@ -59,6 +64,9 @@ def translate_error(error_msg: str, status: int | None = None) -> str:
     """將 API 錯誤代碼翻譯為易懂的中文訊息"""
     msg = str(error_msg).strip()
     explanation = ERROR_TRANSLATION_MAP.get(msg)
+    if not explanation and status is not None:
+        explanation = STATUS_TRANSLATION_MAP.get(status)
+
     status_str = f" (status: {status})" if status is not None else ""
 
     if explanation:
