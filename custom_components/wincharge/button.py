@@ -106,6 +106,20 @@ class WinChargeStopButton(ButtonEntity):
             _LOGGER.error("無法停止：找不到活躍的 order_id 紀錄")
             return
 
+        # 防護：確認訂單處於充電中 (state == 2) 才允許停止
+        try:
+            status_res = self._client.get_transaction_status(order_id)
+            state = status_res.get("state")
+            if state != 2:
+                _LOGGER.warning(
+                    "⚠️ 訂單 (Order ID: %s) 當前非充電狀態 (Code: %s)，已自動攔截停止充電請求！",
+                    order_id,
+                    state,
+                )
+                return
+        except Exception:
+            pass
+
         try:
             self._client.stop_transaction(order_id)
             _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
