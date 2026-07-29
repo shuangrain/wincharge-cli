@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .wincharge_cli import WinChargeClient, get_active_order_id
+from .wincharge_cli import WinChargeClient, get_active_order_id, parse_tou_map
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ class WinChargeStatusSensor(SensorEntity):
                 if state_code in (1, 2):
                     raw_energy = float(res.get("energy", 0.0))
                     energy_kwh = round(raw_energy / 1000.0, 3)
+                    tou_list = parse_tou_map(res.get("tou_price_power_map"))
 
                     self._state = state_map.get(state_code, f"充電中 (Code {state_code})")
                     self._attributes = {
@@ -90,6 +91,7 @@ class WinChargeStatusSensor(SensorEntity):
                         "fee_description": res.get("fee_description"),
                         "charging_discount": res.get("charging_discount"),
                         "is_tou_charging": res.get("is_tou_charging"),
+                        "tou_breakdown": tou_list,
                     }
                     return
             except Exception as err:

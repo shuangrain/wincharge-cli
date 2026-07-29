@@ -74,6 +74,27 @@ def translate_error(error_msg: str, status: int | None = None) -> str:
     return f"{msg}{status_str}"
 
 
+def parse_tou_map(tou_data: Any) -> list[dict[str, Any]]:
+    """解析時間電價分時統計字典 (tou_price_power_map)"""
+    if not isinstance(tou_data, dict):
+        return []
+
+    result = []
+    for rate_key, item in tou_data.items():
+        if isinstance(item, dict):
+            price = float(item.get("price", rate_key))
+            acc_power = float(item.get("acc_power", 0.0))
+            acc_fee = float(item.get("acc_fee", 0.0))
+            result.append(
+                {
+                    "rate_ntd": price,
+                    "kwh": acc_power,
+                    "fee_ntd": acc_fee,
+                }
+            )
+    return result
+
+
 def validate_api_token(token: str) -> dict[str, Any]:
     """解碼並驗證 API Token (JWT) 的有效性"""
     parts = token.strip().split(".")
@@ -493,8 +514,16 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
     raw_energy = float(res.get("energy", 0.0))
     energy_kwh = round(raw_energy / 1000.0, 3)
 
+    tou_list = parse_tou_map(res.get("tou_price_power_map"))
+
     if args.json:
-        output = {**res, "order_id": order_id, "state_desc": state_desc, "energy_kwh": energy_kwh}
+        output = {
+            **res,
+            "order_id": order_id,
+            "state_desc": state_desc,
+            "energy_kwh": energy_kwh,
+            "tou_breakdown": tou_list,
+        }
         print(json.dumps(output, ensure_ascii=False))
     else:
         print("\n📊 充電狀態回報：")
@@ -505,7 +534,11 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
         print(f"   ├─ 已充電時間 (Duration): {res.get('duration')} 秒")
         print(f"   ├─ 已充電度數 (Energy)  : {energy_kwh} kWh ({raw_energy} Wh)")
         print(f"   ├─ 當前費用 (Fee)       : NT$ {res.get('fee')}")
-        print(f"   └─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
+        print(f"   ├─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
+        if tou_list:
+            print("   └─ 時間電價分時明細 (TOU Breakdown):")
+            for t in tou_list:
+                print(f"      ├─ 費率 NT$ {t['rate_ntd']}/度: {t['kwh']} kWh (費用: NT$ {t['fee_ntd']})")
 
 
 def handle_stop(client: WinChargeClient, args: argparse.Namespace):
@@ -528,9 +561,10 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
 
     raw_energy = float(data.get("energy", 0.0))
     energy_kwh = round(raw_energy / 1000.0, 3)
+    tou_list = parse_tou_map(data.get("tou_price_power_map"))
 
     if args.json:
-        output = {**res, "order_id": order_id, "energy_kwh": energy_kwh}
+        output = {**res, "order_id": order_id, "energy_kwh": energy_kwh, "tou_breakdown": tou_list}
         print(json.dumps(output, ensure_ascii=False))
     else:
         print("\n✅ 充電已成功停止！")
@@ -539,7 +573,11 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
         print(f"   ├─ 充電時間 (Start ~ End)   : {data.get('start_time')} ~ {data.get('end_time')}")
         print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
         print(f"   ├─ 總充電度數 (Energy)      : {energy_kwh} kWh ({raw_energy} Wh)")
-        print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
+        print(f"   ├─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
+        if tou_list:
+            print("   └─ 時間電價分時明細 (TOU Breakdown):")
+            for t in tou_list:
+                print(f"      ├─ 費率 NT$ {t['rate_ntd']}/度: {t['kwh']} kWh (費用: NT$ {t['fee_ntd']})")
 
 
 def handle_history(client: WinChargeClient, args: argparse.Namespace):
@@ -577,9 +615,13 @@ def handle_history(client: WinChargeClient, args: argparse.Namespace):
             state_code = item.get("state")
             state_desc = state_map.get(state_code, f"Code {state_code}")
             charger = item.get("charger") or item.get("charger_id") or ""
+            tou_list = parse_tou_map(item.get("tou_price_power_map"))
 
             print(f"   ├─ [{created_at}] 訂單: {order_id} ({state_desc})")
             print(f"   │  充電樁: {charger} | 度數: {kwh} kWh | 費用: NT$ {fee}")
+            if tou_list:
+                for t in tou_list:
+                    print(f"   │  └─ [分時電價] 費率 NT$ {t['rate_ntd']}/度: {t['kwh']} kWh (NT$ {t['fee_ntd']})")
         print("   └─ 查詢完成。")
 
 
