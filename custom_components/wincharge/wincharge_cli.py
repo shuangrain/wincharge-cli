@@ -559,16 +559,26 @@ def handle_history(client: WinChargeClient, args: argparse.Namespace):
         if not isinstance(records, list):
             records = [records]
 
+        state_map = {1: "準備中", 2: "充電中", 3: "已結束", 4: "已完成"}
+
         print(f"\n📋 歷史充電紀錄清單 (共 {len(records)} 筆)：")
         for item in records:
             order_id = item.get("order_id") or item.get("id") or "未知"
             raw_energy = float(item.get("energy", 0.0))
             kwh = round(raw_energy / 1000.0, 3)
             fee = item.get("fee") or item.get("total_fee") or 0.0
-            created_at = item.get("created_at") or item.get("start_time") or "未知時間"
-            charger = item.get("charger_id") or item.get("charger") or ""
 
-            print(f"   ├─ [{created_at}] 訂單: {order_id}")
+            started_ts = item.get("started")
+            if started_ts:
+                created_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started_ts))
+            else:
+                created_at = item.get("created_at") or item.get("start_time") or "未知時間"
+
+            state_code = item.get("state")
+            state_desc = state_map.get(state_code, f"Code {state_code}")
+            charger = item.get("charger") or item.get("charger_id") or ""
+
+            print(f"   ├─ [{created_at}] 訂單: {order_id} ({state_desc})")
             print(f"   │  充電樁: {charger} | 度數: {kwh} kWh | 費用: NT$ {fee}")
         print("   └─ 查詢完成。")
 
