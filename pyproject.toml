@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "wincharge-cli"
 dynamic = ["version"]
-description = "WinCharge 充電樁 CLI 控制工具"
+description = "WinCharge 充電樁 CLI 控制工具與 Home Assistant (HACS) 整合"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
