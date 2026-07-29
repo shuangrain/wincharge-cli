@@ -4,15 +4,18 @@
 # ]
 # ///
 
-"""WinCharge 充電樁 CLI 控制工具 (PEP 723)
+"""WinCharge 充電樁 CLI 控制工具 (PEP 723) 與 HACS 核心模組
 
 ⚠️ 免責聲明 (Disclaimer):
     本工具僅供個人技術測試、研究與學習使用。使用本工具進行任何 API 呼叫、充電作業衍生之費用、
     設備損害或法律責任，開發者不負任何形式之責任。請確保在合法與授權環境下使用。
 """
 
+import argparse
 import base64
 import json
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -309,3 +312,300 @@ class WinChargeClient:
             raise RuntimeError(f"停止充電失敗: {err}")
 
         return data
+
+
+# -------------------------------------------------------------------------
+# Subcommand 處理邏輯
+# -------------------------------------------------------------------------
+
+
+def handle_start(client: WinChargeClient, args: argparse.Namespace):
+    """處理開啟充電完整流程"""
+    charger_id = args.charger_id
+    connector = args.connector or ""
+    payment_password = args.payment_password
+
+    if not payment_password:
+        print(
+            "❌ 錯誤: 開始充電需要傳入 --payment-password 或設定 WINCHARGE_PAYMENT_PASSWORD 環境變數", file=sys.stderr
+        )
+        sys.exit(1)
+
+    if not args.json:
+        print("⚡ [1/6] 驗證帳號資訊...")
+    account = client.get_account_info()
+    phone = account.get("contact")
+    user_name = account.get("name") or "使用者"
+    if not args.json:
+        print(f"   └─ 帳號驗證完成 (姓名: {user_name}, Phone: {phone})")
+
+    if args.card_id:
+        card_id = args.card_id
+        if not args.json:
+            print(f"💳 [2/6] 使用指定卡片 ID: {card_id}")
+    else:
+        if not args.json:
+            print("💳 [2/6] 查詢綁定卡片...")
+        card_id = client.get_primary_card_id(charger_id)
+        if not args.json:
+            print(f"   └─ 取得預設卡片 ID: {card_id}")
+
+    if not args.json:
+        print("📄 [3/6] 查詢發票設定...")
+    invoice = client.get_invoice_setting()
+    if not args.json:
+        print(f"   └─ 發票載具: {invoice.get('carrierPhone') or '無 (電子郵件發票)'}")
+
+    if not args.json:
+        print(f"ℹ️  [4/6] 檢查充電樁即時狀態 (樁號: {charger_id})...")
+    charger_info = client.get_charger_info(charger_id, connector=connector)
+    site_info = charger_info.get("site_info", {})
+    available = charger_info.get("available", True)
+    if not args.json:
+        print(f"   ├─ 站點名稱: {site_info.get('name', '未知')}")
+        print(f"   ├─ 當前費率: NT$ {site_info.get('rate')}/{site_info.get('unit')}")
+        print(f"   └─ 可用狀態: {'✅ 可用 (Available)' if available else '⚠️ 告警/充電中 (Unavailable)'}")
+
+    if not available and not args.force:
+        msg = f"充電樁 [{charger_id}] 當前顯示不可用 (告警或使用中)。"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1, "available": False}, ensure_ascii=False))
+        else:
+            print(
+                f"\n⛔ 啟動預檢攔截：{msg}\n"
+                "   為了避免直接建立訂單失敗 (ERROR_CHARGER_IN_USER)，已自動攔截中斷。\n"
+                "   💡 如確定槍已插妥並仍要強制建立訂單，請加上 --force 參數再試一次。",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+    if not args.json:
+        print("🔌 [5/6] 建立充電訂單...")
+    order_res = client.create_transaction_order(
+        charger_id=charger_id,
+        card_id=card_id,
+        payment_password=payment_password,
+        connector=connector,
+    )
+    order_id = order_res.get("order_id")
+    if order_id:
+        save_last_order(order_id)
+    if not args.json:
+        print(f"   └─ 訂單建立成功！(Order ID: {order_id})")
+
+    if not args.json:
+        print(f"🚀 [6/6] 發送啟動充電指令 (Order ID: {order_id})...")
+    start_res = client.start_transaction(
+        order_id=order_id,
+        phone=phone,
+        invoice_data=invoice,
+    )
+
+    if args.json:
+        output = {**start_res, "order_id": order_id}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n🎉 充電樁啟動成功！")
+        print(f"   ├─ 訂單編號 (Order ID)       : {start_res.get('order_id', order_id)}")
+        print(f"   ├─ 交易編號 (Transaction ID) : {start_res.get('transaction_id')}")
+        print(f"   ├─ 槍號 (Connector ID)       : {start_res.get('connector_id')}")
+        print(
+            f"   ├─ 充電狀態 (Order State)    : {start_res.get('order_state_msg')} (Code: {start_res.get('order_state')})"
+        )
+        print(f"   ├─ 起始電表度數 (Meter Start): {start_res.get('meter_start')}")
+        print(f"   └─ 回應訊息                  : {start_res.get('msg')}")
+
+
+def handle_status(client: WinChargeClient, args: argparse.Namespace):
+    """處理查詢充電狀態"""
+    order_id = args.order_id or load_last_order()
+    if not order_id:
+        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
+            sys.exit(1)
+        else:
+            print(f"❌ 錯誤: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+    if not args.json:
+        print(f"🔍 查詢訂單 [{order_id}] 充電狀態...")
+
+    res = client.get_transaction_status(order_id)
+
+    state_map = {1: "準備中", 2: "充電中", 3: "已結束"}
+    state_code = res.get("state")
+    state_desc = state_map.get(state_code, f"未知狀態 ({state_code})")
+
+    if args.json:
+        output = {**res, "order_id": order_id, "state_desc": state_desc}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n📊 充電狀態回報：")
+        print(f"   ├─ 訂單編號 (Order ID)   : {order_id}")
+        print(f"   ├─ 充電樁號 (Charger)   : {res.get('charger')}")
+        print(f"   ├─ 槍號 (Connector)     : {res.get('connector')}")
+        print(f"   ├─ 狀態 (State)         : {state_desc}")
+        print(f"   ├─ 已充電時間 (Duration): {res.get('duration')} 秒")
+        print(f"   ├─ 已充電度數 (Energy)  : {res.get('energy')} kWh")
+        print(f"   ├─ 當前費用 (Fee)       : NT$ {res.get('fee')}")
+        print(f"   └─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
+
+
+def handle_stop(client: WinChargeClient, args: argparse.Namespace):
+    """處理停止充電"""
+    order_id = args.order_id or load_last_order()
+    if not order_id:
+        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
+            sys.exit(1)
+        else:
+            print(f"❌ 錯誤: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+    if not args.json:
+        print(f"🛑 發送停止充電指令 (Order ID: {order_id})...")
+
+    res = client.stop_transaction(order_id)
+    data = res.get("data", {})
+
+    if args.json:
+        output = {**res, "order_id": order_id}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n✅ 充電已成功停止！")
+        print(f"   ├─ 訂單編號 (Order ID)       : {data.get('order_id', order_id)}")
+        print(f"   ├─ 狀態 (State)             : State {data.get('state')}")
+        print(f"   ├─ 充電時間 (Start ~ End)   : {data.get('start_time')} ~ {data.get('end_time')}")
+        print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
+        print(f"   ├─ 總充電度數 (Energy)      : {data.get('energy')} kWh")
+        print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="WinCharge 充電樁 CLI 控制工具 (PEP 723)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--api-key",
+        default=os.getenv("WINCHARGE_API_KEY"),
+        help="API Key (可透過環境變數 WINCHARGE_API_KEY 設定)",
+    )
+    parser.add_argument(
+        "--api-token",
+        default=os.getenv("WINCHARGE_API_TOKEN"),
+        help="API Token (可透過環境變數 WINCHARGE_API_TOKEN 設定)",
+    )
+    parser.add_argument(
+        "--api-uid",
+        default=os.getenv("WINCHARGE_API_UID"),
+        help="API UID (可透過環境變數 WINCHARGE_API_UID 設定)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="輸出乾淨的 JSON 格式 (適合 Home Assistant / 自動化腳本解析)",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="可用的子指令", required=True)
+
+    parser_start = subparsers.add_parser("start", help="開啟充電作業")
+    parser_start.add_argument(
+        "--charger-id",
+        default=os.getenv("WINCHARGE_CHARGER_ID", "wincharge_ocppv16_SAMPLE123"),
+        help="充電樁編號 (預設: wincharge_ocppv16_SAMPLE123)",
+    )
+    parser_start.add_argument(
+        "--connector",
+        default="",
+        help="槍號 (預設留空)",
+    )
+    parser_start.add_argument(
+        "--payment-password",
+        default=os.getenv("WINCHARGE_PAYMENT_PASSWORD"),
+        help="交易密碼 (可透過環境變數 WINCHARGE_PAYMENT_PASSWORD 設定)",
+    )
+    parser_start.add_argument(
+        "--card-id",
+        default=None,
+        help="自訂卡片 ID (未指定則自動選取預設卡片)",
+    )
+    parser_start.add_argument(
+        "--force",
+        action="store_true",
+        help="當充電樁狀態顯示為不可用時，仍強制嘗試建立充電訂單",
+    )
+
+    parser_status = subparsers.add_parser("status", help="查詢充電狀態")
+    parser_status.add_argument(
+        "order_id",
+        nargs="?",
+        default=None,
+        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
+    )
+
+    parser_stop = subparsers.add_parser("stop", help="停止充電作業")
+    parser_stop.add_argument(
+        "order_id",
+        nargs="?",
+        default=None,
+        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
+    )
+
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    missing_auth = []
+    if not args.api_key:
+        missing_auth.append("--api-key / WINCHARGE_API_KEY")
+    if not args.api_token:
+        missing_auth.append("--api-token / WINCHARGE_API_TOKEN")
+    if not args.api_uid:
+        missing_auth.append("--api-uid / WINCHARGE_API_UID")
+
+    if missing_auth:
+        parser.error("缺少認證標頭參數:\n  - " + "\n  - ".join(missing_auth))
+
+    try:
+        client = WinChargeClient(
+            api_key=args.api_key,
+            api_token=args.api_token,
+            api_uid=args.api_uid,
+            debug=args.debug,
+        )
+    except ValueError as val_err:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": f"JWT 認證頭驗證失敗: {val_err}", "status": -1}, ensure_ascii=False))
+        else:
+            print(f"❌ JWT 認證頭驗證失敗: {val_err}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        if args.command == "start":
+            handle_start(client, args)
+        elif args.command == "status":
+            handle_status(client, args)
+        elif args.command == "stop":
+            handle_stop(client, args)
+    except Exception as e:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(e), "status": -1}, ensure_ascii=False))
+        else:
+            print(f"\n❌ 執行失敗: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

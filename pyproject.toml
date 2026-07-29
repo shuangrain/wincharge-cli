@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wincharge-cli = "wincharge_cli:main"
+wincharge-cli = "wincharge.wincharge_cli:main"
 
 [dependency-groups]
 dev = [
@@ -21,6 +21,9 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
+packages = [
+    "custom_components/wincharge",
+]
 include = [
     "wincharge_cli.py",
 ]
