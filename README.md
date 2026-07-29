@@ -26,16 +26,72 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli sta
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --debug start
 ```
 
-### 3. 本機 Clone 或下載單檔執行
+### 3. 輸出乾淨 JSON 格式 (適合 Home Assistant / 腳本串接)
 ```bash
-uv run wincharge_cli.py --debug start
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --json status
+```
+
+---
+
+## 🏠 Home Assistant (HA) 整合教學
+
+本工具支援 `--json` 參數與 **自動訂單紀錄快取 (`~/.wincharge_last_order`)**。當在 HA 中啟動充電時，`order_id` 會被自動記錄，查詢狀態或停止充電時**無需手動帶入 Order ID**！
+
+### 1. 在 HA `secrets.yaml` 中新增密碼與認證
+```yaml
+wincharge_api_key: "YOUR_API_KEY"
+wincharge_api_token: "YOUR_API_TOKEN"
+wincharge_api_uid: "YOUR_API_UID"
+wincharge_payment_password: "YOUR_PAYMENT_PASSWORD"
+```
+
+### 2. 在 HA `configuration.yaml` 設定按鈕與感測器
+
+```yaml
+# 1. 控制動作 (Shell Command)
+shell_command:
+  wincharge_start: >
+    uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
+      --api-key "!secret wincharge_api_key" \
+      --api-token "!secret wincharge_api_token" \
+      --api-uid "!secret wincharge_api_uid" \
+      start \
+      --payment-password "!secret wincharge_payment_password" \
+      --charger-id "wincharge_ocppv16_SAMPLE123"
+
+  wincharge_stop: >
+    uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
+      --api-key "!secret wincharge_api_key" \
+      --api-token "!secret wincharge_api_token" \
+      --api-uid "!secret wincharge_api_uid" \
+      stop
+
+# 2. 充電狀態感測器 (Command Line Sensor)
+command_line:
+  - sensor:
+      name: "充電樁狀態"
+      unique_id: wincharge_status_sensor
+      command: >
+        uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
+          --api-key "!secret wincharge_api_key" \
+          --api-token "!secret wincharge_api_token" \
+          --api-uid "!secret wincharge_api_uid" \
+          --json status
+      value_template: "{{ value_json.state_desc }}"
+      json_attributes:
+        - order_id
+        - energy
+        - fee
+        - duration
+        - charger
+      scan_interval: 30
 ```
 
 ---
 
 ## 🏗️ 指令架構 (Subcommand Structure)
 
-本工具支援三個主要子指令與 Debug 調試功能，架構如下：
+本工具支援三個主要子指令與 Debug / JSON 調試功能，架構如下：
 
 ```mermaid
 graph TD
@@ -43,9 +99,9 @@ graph TD
     
     AuthCheck --> Subcommands{"選擇子指令"}
     
-    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化流程)"]
-    Subcommands -->|"status"| StatusFlow["查詢充電狀態 (即時度數/金額)"]
-    Subcommands -->|"stop"| StopFlow["停止充電 (交易結算)"]
+    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化流程 & 自動記錄 Order ID)"]
+    Subcommands -->|"status"| StatusFlow["查詢充電狀態 (自動帶入上次 Order ID)"]
+    Subcommands -->|"stop"| StopFlow["停止充電 (自動帶入上次 Order ID)"]
 ```
 
 ---
@@ -104,7 +160,7 @@ sequenceDiagram
 
     note over Script, API: 階段 2: 建立訂單與啟動交易
     Script->>API: POST /api/chargers/{charger_id}/transactions
-    API-->>Script: 建立訂單成功 (回傳 order_id)
+    API-->>Script: 建立訂單成功 (回傳 order_id 並寫入快取檔)
     
     Script->>API: PUT /api/transactions/{order_id}/start
     API-->>Script: 正式啟動充電成功 (回傳 transaction_id & meter_start)
@@ -139,59 +195,13 @@ export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 
 ---
 
-## 📖 詳細指令說明與範例
-
-### 1. 開啟充電 (`start`)
-
-進行完整的預檢與啟動流程：
-
-```bash
-# 透過 uvx 遠端執行 (含 Debug 模式觀看 Raw Request / Response)
-uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
-  --debug \
-  --api-key "YOUR_API_KEY" \
-  --api-token "YOUR_API_TOKEN" \
-  --api-uid "YOUR_API_UID" \
-  start \
-  --payment-password "YOUR_PAYMENT_PASSWORD" \
-  --charger-id "wincharge_ocppv16_SAMPLE123"
-```
-
-**若本機執行單檔案：**
-
-```bash
-uv run wincharge_cli.py --debug start
-```
-
----
-
-### 2. 查詢充電狀態 (`status`)
-
-查詢目前正在進行中的充電訂單狀態（充電度數、時間、目前費用等）：
-
-```bash
-uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli status 2400000000SAMPLE123
-```
-
----
-
-### 3. 停止充電 (`stop`)
-
-發送停止充電交易指令：
-
-```bash
-uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli stop 2400000000SAMPLE123
-```
-
----
-
 ## 📄 參數說明
 
 `uvx --from git+https://... wincharge-cli --help` 輸出範例：
 
 ```text
 usage: wincharge-cli [-h] [--api-key API_KEY] [--api-token API_TOKEN]
-                     [--api-uid API_UID] [--debug]
+                     [--api-uid API_UID] [--debug] [--json]
                      {start,status,stop} ...
 
 WinCharge 充電樁 CLI 控制工具 (PEP 723)
@@ -209,4 +219,5 @@ options:
                         API Token (可透過環境變數 WINCHARGE_API_TOKEN 設定)
   --api-uid API_UID     API UID (可透過環境變數 WINCHARGE_API_UID 設定)
   --debug               開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊
+  --json                輸出乾淨的 JSON 格式 (適合 Home Assistant / 自動化腳本解析)
 ```

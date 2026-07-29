@@ -12,18 +12,18 @@
 
 支援子指令:
     start   : 執行完整預檢與啟動流程以開始充電
-    status  : 查詢指定訂單的充電狀態
-    stop    : 停止指定訂單的充電
+    status  : 查詢指定（或自動記錄）訂單的充電狀態
+    stop    : 停止指定（或自動記錄）訂單的充電
 
 使用範例:
     # 1. 開啟充電 (含 Debug 模式)
     uv run wincharge_cli.py --debug start --payment-password "123456" --charger-id "wincharge_ocppv16_SAMPLE123"
 
-    # 2. 查詢狀態
-    uv run wincharge_cli.py status 2400000000SAMPLE123
+    # 2. 查詢狀態 (自動讀取最新訂單，輸出 JSON)
+    uv run wincharge_cli.py --json status
 
-    # 3. 停止充電
-    uv run wincharge_cli.py stop 2400000000SAMPLE123
+    # 3. 停止充電 (自動讀取最新訂單)
+    uv run wincharge_cli.py stop
 
 支援環境變數預設值:
     WINCHARGE_API_KEY
@@ -39,11 +39,13 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
 
 BASE_URL = "https://new-home.wincharge.net"
+LAST_ORDER_FILE = Path.home() / ".wincharge_last_order"
 
 # 錯誤訊息對照字典
 ERROR_TRANSLATION_MAP = {
@@ -54,6 +56,25 @@ ERROR_TRANSLATION_MAP = {
     "ERROR_NO_CARD": "帳號內未繫結有效的支付卡片",
     "ERROR_UNAUTHORIZED": "認證標頭失效或 Token 已過期",
 }
+
+
+def save_last_order(order_id: str) -> None:
+    """將最新的 order_id 寫入本機快取檔案"""
+    try:
+        LAST_ORDER_FILE.write_text(order_id.strip(), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_last_order() -> str | None:
+    """從本機快取檔案讀取最新的 order_id"""
+    try:
+        if LAST_ORDER_FILE.exists():
+            content = LAST_ORDER_FILE.read_text(encoding="utf-8").strip()
+            return content if content else None
+    except Exception:
+        pass
+    return None
 
 
 def translate_error(error_msg: str, status: int | None = None) -> str:
@@ -341,43 +362,57 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
         )
         sys.exit(1)
 
-    print("⚡ [1/6] 驗證帳號資訊...")
+    if not args.json:
+        print("⚡ [1/6] 驗證帳號資訊...")
     account = client.get_account_info()
     phone = account.get("contact")
     user_name = account.get("name") or "使用者"
-    print(f"   └─ 帳號驗證完成 (姓名: {user_name}, Phone: {phone})")
+    if not args.json:
+        print(f"   └─ 帳號驗證完成 (姓名: {user_name}, Phone: {phone})")
 
     if args.card_id:
         card_id = args.card_id
-        print(f"💳 [2/6] 使用指定卡片 ID: {card_id}")
+        if not args.json:
+            print(f"💳 [2/6] 使用指定卡片 ID: {card_id}")
     else:
-        print("💳 [2/6] 查詢綁定卡片...")
+        if not args.json:
+            print("💳 [2/6] 查詢綁定卡片...")
         card_id = client.get_primary_card_id(charger_id)
-        print(f"   └─ 取得預設卡片 ID: {card_id}")
+        if not args.json:
+            print(f"   └─ 取得預設卡片 ID: {card_id}")
 
-    print("📄 [3/6] 查詢發票設定...")
+    if not args.json:
+        print("📄 [3/6] 查詢發票設定...")
     invoice = client.get_invoice_setting()
-    print(f"   └─ 發票載具: {invoice.get('carrierPhone') or '無 (電子郵件發票)'}")
+    if not args.json:
+        print(f"   └─ 發票載具: {invoice.get('carrierPhone') or '無 (電子郵件發票)'}")
 
-    print(f"ℹ️  [4/6] 檢查充電樁即時狀態 (樁號: {charger_id})...")
+    if not args.json:
+        print(f"ℹ️  [4/6] 檢查充電樁即時狀態 (樁號: {charger_id})...")
     charger_info = client.get_charger_info(charger_id, connector=connector)
     site_info = charger_info.get("site_info", {})
     available = charger_info.get("available", True)
-    print(f"   ├─ 站點名稱: {site_info.get('name', '未知')}")
-    print(f"   ├─ 當前費率: NT$ {site_info.get('rate')}/{site_info.get('unit')}")
-    print(f"   └─ 可用狀態: {'✅ 可用 (Available)' if available else '⚠️ 告警/充電中 (Unavailable)'}")
+    if not args.json:
+        print(f"   ├─ 站點名稱: {site_info.get('name', '未知')}")
+        print(f"   ├─ 當前費率: NT$ {site_info.get('rate')}/{site_info.get('unit')}")
+        print(f"   └─ 可用狀態: {'✅ 可用 (Available)' if available else '⚠️ 告警/充電中 (Unavailable)'}")
 
     # 關鍵預檢防護：若樁號狀態不可用 (available == False)，提前終止並給出建議
     if not available and not args.force:
-        print(
-            f"\n⛔ 啟動預檢攔截：充電樁 [{charger_id}] 當前顯示不可用 (告警或使用中)。\n"
-            "   為了避免直接建立訂單失敗 (ERROR_CHARGER_IN_USER)，已自動攔截中斷。\n"
-            "   💡 如確定槍已插妥並仍要強制建立訂單，請加上 --force 參數再試一次。",
-            file=sys.stderr,
-        )
+        msg = f"充電樁 [{charger_id}] 當前顯示不可用 (告警或使用中)。"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1, "available": False}, ensure_ascii=False))
+        else:
+            print(
+                f"\n⛔ 啟動預檢攔截：{msg}\n"
+                "   為了避免直接建立訂單失敗 (ERROR_CHARGER_IN_USER)，已自動攔截中斷。\n"
+                "   💡 如確定槍已插妥並仍要強制建立訂單，請加上 --force 參數再試一次。",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
-    print("🔌 [5/6] 建立充電訂單...")
+    if not args.json:
+        print("🔌 [5/6] 建立充電訂單...")
     order_res = client.create_transaction_order(
         charger_id=charger_id,
         card_id=card_id,
@@ -385,30 +420,48 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
         connector=connector,
     )
     order_id = order_res.get("order_id")
-    print(f"   └─ 訂單建立成功！(Order ID: {order_id})")
+    if order_id:
+        save_last_order(order_id)
+    if not args.json:
+        print(f"   └─ 訂單建立成功！(Order ID: {order_id})")
 
-    print(f"🚀 [6/6] 發送啟動充電指令 (Order ID: {order_id})...")
+    if not args.json:
+        print(f"🚀 [6/6] 發送啟動充電指令 (Order ID: {order_id})...")
     start_res = client.start_transaction(
         order_id=order_id,
         phone=phone,
         invoice_data=invoice,
     )
 
-    print("\n🎉 充電樁啟動成功！")
-    print(f"   ├─ 訂單編號 (Order ID)       : {start_res.get('order_id', order_id)}")
-    print(f"   ├─ 交易編號 (Transaction ID) : {start_res.get('transaction_id')}")
-    print(f"   ├─ 槍號 (Connector ID)       : {start_res.get('connector_id')}")
-    print(
-        f"   ├─ 充電狀態 (Order State)    : {start_res.get('order_state_msg')} (Code: {start_res.get('order_state')})"
-    )
-    print(f"   ├─ 起始電表度數 (Meter Start): {start_res.get('meter_start')}")
-    print(f"   └─ 回應訊息                  : {start_res.get('msg')}")
+    if args.json:
+        output = {**start_res, "order_id": order_id}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n🎉 充電樁啟動成功！")
+        print(f"   ├─ 訂單編號 (Order ID)       : {start_res.get('order_id', order_id)}")
+        print(f"   ├─ 交易編號 (Transaction ID) : {start_res.get('transaction_id')}")
+        print(f"   ├─ 槍號 (Connector ID)       : {start_res.get('connector_id')}")
+        print(
+            f"   ├─ 充電狀態 (Order State)    : {start_res.get('order_state_msg')} (Code: {start_res.get('order_state')})"
+        )
+        print(f"   ├─ 起始電表度數 (Meter Start): {start_res.get('meter_start')}")
+        print(f"   └─ 回應訊息                  : {start_res.get('msg')}")
 
 
 def handle_status(client: WinChargeClient, args: argparse.Namespace):
     """處理查詢充電狀態"""
-    order_id = args.order_id
-    print(f"🔍 查詢訂單 [{order_id}] 充電狀態...")
+    order_id = args.order_id or load_last_order()
+    if not order_id:
+        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
+            sys.exit(1)
+        else:
+            print(f"❌ 錯誤: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+    if not args.json:
+        print(f"🔍 查詢訂單 [{order_id}] 充電狀態...")
 
     res = client.get_transaction_status(order_id)
 
@@ -416,31 +469,50 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
     state_code = res.get("state")
     state_desc = state_map.get(state_code, f"未知狀態 ({state_code})")
 
-    print("\n📊 充電狀態回報：")
-    print(f"   ├─ 充電樁號 (Charger)   : {res.get('charger')}")
-    print(f"   ├─ 槍號 (Connector)     : {res.get('connector')}")
-    print(f"   ├─ 狀態 (State)         : {state_desc}")
-    print(f"   ├─ 已充電時間 (Duration): {res.get('duration')} 秒")
-    print(f"   ├─ 已充電度數 (Energy)  : {res.get('energy')} kWh")
-    print(f"   ├─ 當前費用 (Fee)       : NT$ {res.get('fee')}")
-    print(f"   └─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
+    if args.json:
+        output = {**res, "order_id": order_id, "state_desc": state_desc}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n📊 充電狀態回報：")
+        print(f"   ├─ 訂單編號 (Order ID)   : {order_id}")
+        print(f"   ├─ 充電樁號 (Charger)   : {res.get('charger')}")
+        print(f"   ├─ 槍號 (Connector)     : {res.get('connector')}")
+        print(f"   ├─ 狀態 (State)         : {state_desc}")
+        print(f"   ├─ 已充電時間 (Duration): {res.get('duration')} 秒")
+        print(f"   ├─ 已充電度數 (Energy)  : {res.get('energy')} kWh")
+        print(f"   ├─ 當前費用 (Fee)       : NT$ {res.get('fee')}")
+        print(f"   └─ 費率說明             : NT$ {res.get('fee_of_unit')} ({res.get('fee_description')})")
 
 
 def handle_stop(client: WinChargeClient, args: argparse.Namespace):
     """處理停止充電"""
-    order_id = args.order_id
-    print(f"🛑 發送停止充電指令 (Order ID: {order_id})...")
+    order_id = args.order_id or load_last_order()
+    if not order_id:
+        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        if args.json:
+            print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
+            sys.exit(1)
+        else:
+            print(f"❌ 錯誤: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+    if not args.json:
+        print(f"🛑 發送停止充電指令 (Order ID: {order_id})...")
 
     res = client.stop_transaction(order_id)
     data = res.get("data", {})
 
-    print("\n✅ 充電已成功停止！")
-    print(f"   ├─ 訂單編號 (Order ID)       : {data.get('order_id', order_id)}")
-    print(f"   ├─ 狀態 (State)             : State {data.get('state')}")
-    print(f"   ├─ 充電時間 (Start ~ End)   : {data.get('start_time')} ~ {data.get('end_time')}")
-    print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
-    print(f"   ├─ 總充電度數 (Energy)      : {data.get('energy')} kWh")
-    print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
+    if args.json:
+        output = {**res, "order_id": order_id}
+        print(json.dumps(output, ensure_ascii=False))
+    else:
+        print("\n✅ 充電已成功停止！")
+        print(f"   ├─ 訂單編號 (Order ID)       : {data.get('order_id', order_id)}")
+        print(f"   ├─ 狀態 (State)             : State {data.get('state')}")
+        print(f"   ├─ 充電時間 (Start ~ End)   : {data.get('start_time')} ~ {data.get('end_time')}")
+        print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
+        print(f"   ├─ 總充電度數 (Energy)      : {data.get('energy')} kWh")
+        print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
 
 
 # -------------------------------------------------------------------------
@@ -475,6 +547,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="輸出乾淨的 JSON 格式 (適合 Home Assistant / 自動化腳本解析)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="可用的子指令", required=True)
 
@@ -506,18 +583,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="當充電樁狀態顯示為不可用時，仍強制嘗試建立充電訂單",
     )
 
-    # 子指令 2: status
+    # 子指令 2: status (order_id 變為可選，自動帶入快取檔)
     parser_status = subparsers.add_parser("status", help="查詢充電狀態")
     parser_status.add_argument(
         "order_id",
-        help="訂單編號 (Order ID，例如: 2400000000SAMPLE123)",
+        nargs="?",
+        default=None,
+        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
     )
 
-    # 子指令 3: stop
+    # 子指令 3: stop (order_id 變為可選，自動帶入快取檔)
     parser_stop = subparsers.add_parser("stop", help="停止充電作業")
     parser_stop.add_argument(
         "order_id",
-        help="訂單編號 (Order ID，例如: 2400000000SAMPLE123)",
+        nargs="?",
+        default=None,
+        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
     )
 
     return parser
@@ -547,7 +628,10 @@ def main():
             debug=args.debug,
         )
     except ValueError as val_err:
-        print(f"❌ JWT 認證頭驗證失敗: {val_err}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"error": f"JWT 認證頭驗證失敗: {val_err}", "status": -1}, ensure_ascii=False))
+        else:
+            print(f"❌ JWT 認證頭驗證失敗: {val_err}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -558,7 +642,10 @@ def main():
         elif args.command == "stop":
             handle_stop(client, args)
     except Exception as e:
-        print(f"\n❌ 執行失敗: {e}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(e), "status": -1}, ensure_ascii=False))
+        else:
+            print(f"\n❌ 執行失敗: {e}", file=sys.stderr)
         sys.exit(1)
 
 
