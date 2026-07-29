@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from wincharge_cli import WinChargeClient
+try:
+    from wincharge_cli import WinChargeClient
+except ImportError:
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from wincharge_cli import WinChargeClient
 
 DOMAIN = "wincharge"
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]

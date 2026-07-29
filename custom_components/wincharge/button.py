@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform.interface import AddEntitiesCallback
 
-from wincharge_cli import WinChargeClient, load_last_order, save_last_order
+try:
+    from wincharge_cli import WinChargeClient, load_last_order, save_last_order
+except ImportError:
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from wincharge_cli import WinChargeClient, load_last_order, save_last_order
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
