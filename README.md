@@ -4,7 +4,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/shuangrain/wincharge-cli?color=blue)](https://github.com/shuangrain/wincharge-cli/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
 
-基於 **PEP 723 (Inline Script Metadata)** 規範與標準 Python Package 撰寫的充電樁 CLI 控制腳本，支援自動安裝相依套件（如 `requests`），可用於自動化開啟充電、查詢充電進度、停止充電與查詢歷史充電紀錄。
+基於 **PEP 723 (Inline Script Metadata)** 規範與標準 Python Package 撰寫的充電樁 CLI 控制腳本與 **Home Assistant (HACS)** 自訂整合元件，支援自動安裝相依套件（如 `requests`），可用於自動化開啟充電、查詢充電進度、停止充電、時間電價分時統計與查詢歷史充電紀錄，並可完美整合至 **Home Assistant** 與 **Apple HomeKit / Siri** 進行智慧家庭語音與自動化控制。
 
 > [!WARNING]
 > **⚠️ 免責聲明 (Disclaimer)**  
