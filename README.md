@@ -15,12 +15,12 @@
 
 ### 1. 透過 `uvx` 整合 GitHub 專案執行 (最推薦)
 ```bash
-uvx --from git+https://github.com/<YOUR_GITHUB_USER>/wincharge-cli.git wincharge-cli start
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli start
 ```
 
 ### 2. 透過 `uv run` 遠端腳本執行
 ```bash
-uv run https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/wincharge-cli/main/wincharge_cli.py start
+uv run https://raw.githubusercontent.com/shuangrain/wincharge-cli/main/wincharge_cli.py start
 ```
 
 ### 3. 本機 Clone 或下載單檔執行
@@ -144,7 +144,7 @@ export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 
 ```bash
 # 透過 uvx 遠端執行
-uvx --from git+https://github.com/<YOUR_GITHUB_USER>/wincharge-cli.git wincharge-cli \
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli \
   --api-key "YOUR_API_KEY" \
   --api-token "YOUR_API_TOKEN" \
   --api-uid "YOUR_API_UID" \
@@ -166,7 +166,7 @@ uv run wincharge_cli.py start
 查詢目前正在進行中的充電訂單狀態（充電度數、時間、目前費用等）：
 
 ```bash
-uvx --from git+https://github.com/<YOUR_GITHUB_USER>/wincharge-cli.git wincharge-cli status 2400000000SAMPLE123
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli status 2400000000SAMPLE123
 ```
 
 ---
@@ -176,7 +176,7 @@ uvx --from git+https://github.com/<YOUR_GITHUB_USER>/wincharge-cli.git wincharge
 發送停止充電交易指令：
 
 ```bash
-uvx --from git+https://github.com/<YOUR_GITHUB_USER>/wincharge-cli.git wincharge-cli stop 2400000000SAMPLE123
+uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli stop 2400000000SAMPLE123
 ```
 
 ---
