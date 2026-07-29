@@ -44,6 +44,27 @@ import requests
 
 BASE_URL = "https://new-home.wincharge.net"
 
+# 錯誤訊息對照字典
+ERROR_TRANSLATION_MAP = {
+    "ERROR_CHARGER_IN_USER": "充電樁目前正由其他使用者佔用或正在充電中",
+    "ERROR_CHARGER_OFFLINE": "充電樁目前處於離線狀態，無法對外通訊",
+    "ERROR_PAYMENT_PASSWORD": "交易密碼驗證失敗，請確認密碼是否正確",
+    "ERROR_CARD_INVALID": "指定的支付卡片無效或已被停用",
+    "ERROR_NO_CARD": "帳號內未繫結有效的支付卡片",
+    "ERROR_UNAUTHORIZED": "認證標頭失效或 Token 已過期",
+}
+
+
+def translate_error(error_msg: str, status: Optional[int] = None) -> str:
+    """將 API 錯誤代碼翻譯為易懂的中文訊息"""
+    msg = str(error_msg).strip()
+    explanation = ERROR_TRANSLATION_MAP.get(msg)
+    status_str = f" (status: {status})" if status is not None else ""
+    
+    if explanation:
+        return f"{explanation} [{msg}]{status_str}"
+    return f"{msg}{status_str}"
+
 
 def validate_api_token(token: str) -> Dict[str, Any]:
     """解碼並驗證 API Token (JWT) 的有效性"""
@@ -118,7 +139,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"帳號資訊取得失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"帳號資訊取得失敗: {err}")
 
         contact = data.get("contact", "")
         if not contact or not str(contact).strip():
@@ -136,7 +158,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"卡片列表取得失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"卡片列表取得失敗: {err}")
 
         cards = data.get("cards", [])
         if not cards or len(cards) == 0:
@@ -160,7 +183,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"發票設定取得失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"發票設定取得失敗: {err}")
 
         invoice = data.get("invoice")
         if not invoice or not isinstance(invoice, dict):
@@ -207,7 +231,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"建立充電訂單失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"建立充電訂單失敗: {err}")
 
         return data
 
@@ -231,7 +256,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"發送啟動充電指令失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"發送啟動充電指令失敗: {err}")
 
         return data
 
@@ -258,7 +284,8 @@ class WinChargeClient:
         data = response.json()
 
         if data.get("status") != 0:
-            raise RuntimeError(f"停止充電失敗: {data.get('error_msg', '未知錯誤')} (status: {data.get('status')})")
+            err = translate_error(data.get('error_msg', '未知錯誤'), data.get('status'))
+            raise RuntimeError(f"停止充電失敗: {err}")
 
         return data
 
@@ -302,6 +329,16 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
     print(f"   ├─ 站點名稱: {site_info.get('name', '未知')}")
     print(f"   ├─ 當前費率: NT$ {site_info.get('rate')}/{site_info.get('unit')}")
     print(f"   └─ 可用狀態: {'✅ 可用 (Available)' if available else '⚠️ 告警/充電中 (Unavailable)'}")
+
+    # 關鍵預檢防護：若樁號狀態不可用 (available == False)，提前終止並給出建議
+    if not available and not args.force:
+        print(
+            f"\n⛔ 啟動預檢攔截：充電樁 [{charger_id}] 當前顯示不可用 (告警或使用中)。\n"
+            "   為了避免直接建立訂單失敗 (ERROR_CHARGER_IN_USER)，已自動攔截中斷。\n"
+            "   💡 如確定槍已插妥並仍要強制建立訂單，請加上 --force 參數再試一次。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"🔌 [5/6] 建立充電訂單...")
     order_res = client.create_transaction_order(
@@ -417,6 +454,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--card-id",
         default=None,
         help="自訂卡片 ID (未指定則自動選取預設卡片)",
+    )
+    parser_start.add_argument(
+        "--force",
+        action="store_true",
+        help="當充電樁狀態顯示為不可用時，仍強制嘗試建立充電訂單",
     )
 
     # 子指令 2: status
