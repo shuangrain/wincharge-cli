@@ -321,6 +321,51 @@ class WinChargeClient:
 
         return data
 
+    # -------------------------------------------------------------------------
+    # 新增：帳號活躍與歷史交易 API
+    # -------------------------------------------------------------------------
+
+    def get_active_transactions(self) -> list[dict[str, Any]]:
+        """查詢目前帳號下正處於充電/活躍狀態的交易紀錄 (show_charging_only=1)"""
+        url = f"{BASE_URL}/api/account/transactions?show_charging_only=1"
+        headers = {"referer": f"{BASE_URL}/user/transactions"}
+
+        response = self._request("GET", url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            return data.get("transactions", data.get("list", data.get("data", [])))
+        return []
+
+    def get_transaction_history(self, page: int = 1, page_count: int = 10) -> dict[str, Any]:
+        """查詢帳號歷史充電交易紀錄 (分頁)"""
+        url = f"{BASE_URL}/api/account/transactions?page={page}&page_count={page_count}"
+        headers = {"referer": f"{BASE_URL}/user/transactions"}
+
+        response = self._request("GET", url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+
+def get_active_order_id(client: WinChargeClient | None = None) -> str | None:
+    """動態獲取當前活躍訂單 ID：優先從線上 API 查詢，找不到再從本機快取檔讀取"""
+    if client:
+        try:
+            active_list = client.get_active_transactions()
+            if active_list and len(active_list) > 0:
+                first_order = active_list[0]
+                order_id = first_order.get("order_id") or first_order.get("id")
+                if order_id:
+                    save_last_order(str(order_id))
+                    return str(order_id)
+        except Exception:
+            pass
+
+    return load_last_order()
+
 
 # -------------------------------------------------------------------------
 # Subcommand 處理邏輯
@@ -425,10 +470,10 @@ def handle_start(client: WinChargeClient, args: argparse.Namespace):
 
 
 def handle_status(client: WinChargeClient, args: argparse.Namespace):
-    """處理查詢充電狀態"""
-    order_id = args.order_id or load_last_order()
+    """處理查詢充電狀態 (自動優先線上尋找活躍訂單)"""
+    order_id = args.order_id or get_active_order_id(client)
     if not order_id:
-        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        msg = "未指定 order_id，且線上/本機快取均找不到活躍的充電訂單"
         if args.json:
             print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
             sys.exit(1)
@@ -464,10 +509,10 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
 
 
 def handle_stop(client: WinChargeClient, args: argparse.Namespace):
-    """處理停止充電"""
-    order_id = args.order_id or load_last_order()
+    """處理停止充電 (自動優先線上尋找活躍訂單)"""
+    order_id = args.order_id or get_active_order_id(client)
     if not order_id:
-        msg = "未指定 order_id，且本機找不到歷史啟動紀錄檔 (~/.wincharge_last_order)"
+        msg = "未指定 order_id，且線上/本機快取均找不到活躍的充電訂單"
         if args.json:
             print(json.dumps({"error": msg, "status": -1}, ensure_ascii=False))
             sys.exit(1)
@@ -495,6 +540,37 @@ def handle_stop(client: WinChargeClient, args: argparse.Namespace):
         print(f"   ├─ 總充電時間 (Duration)    : {data.get('duration')} 秒")
         print(f"   ├─ 總充電度數 (Energy)      : {energy_kwh} kWh ({raw_energy} Wh)")
         print(f"   └─ 預估費用 (Charge Fee)     : NT$ {data.get('charge_fee')}")
+
+
+def handle_history(client: WinChargeClient, args: argparse.Namespace):
+    """處理查詢歷史充電交易紀錄"""
+    page = args.page or 1
+    count = args.count or 10
+
+    if not args.json:
+        print(f"📜 查詢帳號歷史充電紀錄 (頁碼: {page}, 每頁: {count} 筆)...")
+
+    res = client.get_transaction_history(page=page, page_count=count)
+
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        records = res.get("data", res.get("transactions", res.get("list", [])))
+        if not isinstance(records, list):
+            records = [records]
+
+        print(f"\n📋 歷史充電紀錄清單 (共 {len(records)} 筆)：")
+        for item in records:
+            order_id = item.get("order_id") or item.get("id") or "未知"
+            raw_energy = float(item.get("energy", 0.0))
+            kwh = round(raw_energy / 1000.0, 3)
+            fee = item.get("fee") or item.get("total_fee") or 0.0
+            created_at = item.get("created_at") or item.get("start_time") or "未知時間"
+            charger = item.get("charger_id") or item.get("charger") or ""
+
+            print(f"   ├─ [{created_at}] 訂單: {order_id}")
+            print(f"   │  充電樁: {charger} | 度數: {kwh} kWh | 費用: NT$ {fee}")
+        print("   └─ 查詢完成。")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -563,7 +639,7 @@ def build_parser() -> argparse.ArgumentParser:
         "order_id",
         nargs="?",
         default=None,
-        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
+        help="訂單編號 (選填，未傳入時自動從線上 API 抓取活躍訂單，或讀取 ~/.wincharge_last_order)",
     )
 
     parser_stop = subparsers.add_parser("stop", help="停止充電作業")
@@ -571,7 +647,21 @@ def build_parser() -> argparse.ArgumentParser:
         "order_id",
         nargs="?",
         default=None,
-        help="訂單編號 (選填，未傳入時自動讀取最新紀錄 ~/.wincharge_last_order)",
+        help="訂單編號 (選填，未傳入時自動從線上 API 抓取活躍訂單，或讀取 ~/.wincharge_last_order)",
+    )
+
+    parser_history = subparsers.add_parser("history", help="查詢歷史充電紀錄")
+    parser_history.add_argument(
+        "--page",
+        type=int,
+        default=1,
+        help="頁碼 (預設: 1)",
+    )
+    parser_history.add_argument(
+        "--count",
+        type=int,
+        default=10,
+        help="每頁顯示筆數 (預設: 10)",
     )
 
     return parser
@@ -613,6 +703,8 @@ def main():
             handle_status(client, args)
         elif args.command == "stop":
             handle_stop(client, args)
+        elif args.command == "history":
+            handle_history(client, args)
     except Exception as e:
         if getattr(args, "json", False):
             print(json.dumps({"error": str(e), "status": -1}, ensure_ascii=False))

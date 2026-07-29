@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .wincharge_cli import WinChargeClient, load_last_order, save_last_order
+from .wincharge_cli import WinChargeClient, get_active_order_id, save_last_order
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class WinChargeStartButton(ButtonEntity):
         payment_password = self._config["payment_password"]
 
         # 防護 1：檢查最新訂單是否正處於充電中
-        last_order = load_last_order()
+        last_order = get_active_order_id(self._client)
         if last_order:
             try:
                 status_res = self._client.get_transaction_status(last_order)
@@ -101,7 +101,7 @@ class WinChargeStopButton(ButtonEntity):
 
     def press(self) -> None:
         """點擊停止充電。"""
-        order_id = load_last_order()
+        order_id = get_active_order_id(self._client)
         if not order_id:
             _LOGGER.error("無法停止：找不到活躍的 order_id 紀錄")
             return

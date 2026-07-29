@@ -13,6 +13,8 @@
 from custom_components.wincharge.wincharge_cli import (
     WinChargeClient,
     build_parser,
+    get_active_order_id,
+    handle_history,
     handle_start,
     handle_status,
     handle_stop,
@@ -26,6 +28,8 @@ from custom_components.wincharge.wincharge_cli import (
 __all__ = [
     "WinChargeClient",
     "build_parser",
+    "get_active_order_id",
+    "handle_history",
     "handle_start",
     "handle_status",
     "handle_stop",

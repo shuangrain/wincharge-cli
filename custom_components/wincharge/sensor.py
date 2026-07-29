@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .wincharge_cli import WinChargeClient, load_last_order
+from .wincharge_cli import WinChargeClient, get_active_order_id
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class WinChargeStatusSensor(SensorEntity):
     def update(self) -> None:
         """更新狀態感測器與完整屬性。"""
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
-        order_id = load_last_order()
+        order_id = get_active_order_id(self._client)
 
         if order_id:
             try:
@@ -135,7 +135,7 @@ class WinChargeEnergySensor(SensorEntity):
 
     def update(self) -> None:
         """更新已充電度數 (自動除以 1000 換算為 kWh)。"""
-        order_id = load_last_order()
+        order_id = get_active_order_id(self._client)
         if not order_id:
             self._state = 0.0
             return
@@ -165,7 +165,7 @@ class WinChargeFeeSensor(SensorEntity):
 
     def update(self) -> None:
         """更新當前費用。"""
-        order_id = load_last_order()
+        order_id = get_active_order_id(self._client)
         if not order_id:
             self._state = 0.0
             return
@@ -195,7 +195,7 @@ class WinChargeDurationSensor(SensorEntity):
 
     def update(self) -> None:
         """更新充電持續時間。"""
-        order_id = load_last_order()
+        order_id = get_active_order_id(self._client)
         if not order_id:
             self._state = 0
             return
