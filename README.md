@@ -2,7 +2,6 @@
 
 [![CI Checks](https://github.com/shuangrain/wincharge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/shuangrain/wincharge-cli/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/shuangrain/wincharge-cli?color=blue)](https://github.com/shuangrain/wincharge-cli/releases)
-[![HACS Default](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
 
 基於 **PEP 723 (Inline Script Metadata)** 規範與標準 Python Package 撰寫的充電樁 CLI 控制腳本，支援自動安裝相依套件（如 `requests`），可用於自動化開啟充電、查詢充電進度與停止充電。
 
@@ -34,27 +33,11 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 
 ---
 
-## 🏠 Home Assistant (HA) 整合指南
-
-本專案原生支援 **HACS 自訂儲存庫 (Custom Repository)** 圖形化安裝與傳統 YAML 控制兩寫法。
-
-### 方法 A：透過 HACS 自訂儲存庫安裝 (最推薦 ⭐)
-
-1. 開啟 Home Assistant 的 **HACS** 介面。
-2. 點擊右上角三點選單 ➔ 選擇 **「Custom repositories (自訂儲存庫)」**。
-3. 貼上儲存庫網址：`https://github.com/shuangrain/wincharge-cli`
-4. 類別 (Category) 選擇 **`Integration (整合)`** ➔ 點擊 **ADD**。
-5. 點擊搜尋到的 **WinCharge 充電樁控制** ➔ 點擊 **【下載 (Download)】**。
-6. 重新啟動 Home Assistant。
-7. 前往 **設定 ➔ 裝置與服務 ➔ 新增整合**，搜尋 **WinCharge**，透過 UI 視窗輸入金鑰即可完成設定！
-
----
-
-### 方法 B：傳統 YAML 整合
+## 🏠 Home Assistant (HA) 整合教學
 
 本工具支援 `--json` 參數與 **自動訂單紀錄快取 (`~/.wincharge_last_order`)**。當在 HA 中啟動充電時，`order_id` 會被自動記錄，查詢狀態或停止充電時**無需手動帶入 Order ID**！
 
-#### 1. 在 HA `secrets.yaml` 中新增密碼與認證
+### 1. 在 HA `secrets.yaml` 中新增密碼與認證
 ```yaml
 wincharge_api_key: "YOUR_API_KEY"
 wincharge_api_token: "YOUR_API_TOKEN"
@@ -62,7 +45,7 @@ wincharge_api_uid: "YOUR_API_UID"
 wincharge_payment_password: "YOUR_PAYMENT_PASSWORD"
 ```
 
-#### 2. 在 HA `configuration.yaml` 設定按鈕與感測器
+### 2. 在 HA `configuration.yaml` 設定按鈕與感測器
 
 ```yaml
 # 1. 控制動作 (Shell Command)
