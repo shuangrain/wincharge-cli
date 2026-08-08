@@ -14,6 +14,7 @@
 import argparse
 import base64
 import json
+import logging
 import os
 import sys
 import time
@@ -25,6 +26,7 @@ import requests
 BASE_URL = "https://new-home.wincharge.net"
 DEFAULT_API_KEY = "IUOXLJtNtAk5z0CWV8xwexTns6LG3eRN"
 LAST_ORDER_FILE = Path.home() / ".wincharge_last_order"
+_LOGGER = logging.getLogger(__name__)
 
 
 def format_password_hash(password: str) -> str:
@@ -288,6 +290,12 @@ class WinChargeClient:
             return
 
         if self.member_id and self.password:
+            hours_passed = round(elapsed / 3600.0, 1) if self.last_login_time else 0
+            _LOGGER.info(
+                "🔑 [WinCharge] 距離上次登入已過 %.1f 小時，執行自動登入取得最新 API Token (Member ID: %s)...",
+                hours_passed,
+                self.member_id,
+            )
             try:
                 login_info = self.login(
                     member_id=self.member_id,
@@ -299,7 +307,9 @@ class WinChargeClient:
                 self.api_uid = login_info["api_uid"]
                 self.last_login_time = now
                 self._update_session_headers()
+                _LOGGER.info("✅ [WinCharge] 自動登入成功，已取得最新 Token (UID: %s)", self.api_uid)
             except Exception as e:
+                _LOGGER.error("❌ [WinCharge] 自動登入失敗: %s", e)
                 if not self.api_token:
                     raise e
 
