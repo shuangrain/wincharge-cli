@@ -23,7 +23,14 @@ from typing import Any
 import requests
 
 BASE_URL = "https://new-home.wincharge.net"
+DEFAULT_API_KEY = "IUOXLJtNtAk5z0CWV8xwexTns6LG3eRN"
 LAST_ORDER_FILE = Path.home() / ".wincharge_last_order"
+
+
+def format_password_hash(password: str) -> str:
+    """傳入的 32 位 MD5 小寫 Hex 密碼雜湊值 (腳本不另外進行 MD5 雜湊處理)"""
+    return str(password).strip().lower()
+
 
 # 錯誤訊息對照字典
 ERROR_TRANSLATION_MAP = {
@@ -134,12 +141,50 @@ def validate_api_token(token: str) -> dict[str, Any]:
 
 
 class WinChargeClient:
-    def __init__(self, api_key: str, api_token: str, api_uid: str, debug: bool = False):
-        # 驗證 JWT Token
-        self.jwt_payload = validate_api_token(api_token)
+    def __init__(
+        self,
+        api_key: str = DEFAULT_API_KEY,
+        api_token: str | None = None,
+        api_uid: str | None = None,
+        member_id: str | None = None,
+        password: str | None = None,
+        debug: bool = False,
+        refresh_hours: int = 24,
+    ):
+        self.api_key = api_key or DEFAULT_API_KEY
+        self.member_id = member_id
+        self.password = password
         self.debug = debug
+        self.refresh_seconds = refresh_hours * 3600
+        self.last_login_time = time.time() if api_token else 0.0
+
+        self.api_token = api_token
+        self.api_uid = api_uid
+
+        # 若提供 member_id 與 password 且無初始 token，立即執行登入
+        if self.member_id and self.password and not self.api_token:
+            login_info = self.login(
+                member_id=self.member_id,
+                password=self.password,
+                api_key=self.api_key,
+                debug=self.debug,
+            )
+            self.api_token = login_info["api_token"]
+            self.api_uid = login_info["api_uid"]
+            self.last_login_time = time.time()
+
+        self.jwt_payload: dict[str, Any] = {}
+        if self.api_token:
+            try:
+                self.jwt_payload = validate_api_token(self.api_token)
+            except Exception:
+                pass
 
         self.session = requests.Session()
+        self._update_session_headers()
+
+    def _update_session_headers(self) -> None:
+        """更新 HTTP Session 中的認證標頭"""
         self.session.headers.update(
             {
                 "accept": "application/json, text/plain, */*",
@@ -148,17 +193,120 @@ class WinChargeClient:
                 "pragma": "no-cache",
                 "user-agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+                    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
                 ),
-                "x-api-key": api_key,
-                "x-api-token": api_token,
-                "x-api-uid": api_uid,
+                "x-api-key": self.api_key,
+                "x-api-token": self.api_token or "",
+                "x-api-uid": self.api_uid or "",
             }
         )
         self.session.cookies.set("i18n_redirected", "zh-TW")
 
+    @classmethod
+    def login(
+        cls,
+        member_id: str,
+        password: str,
+        api_key: str = DEFAULT_API_KEY,
+        debug: bool = False,
+    ) -> dict[str, Any]:
+        """呼叫 POST /api/account/login 進行帳號密碼登入 (自動做 MD5 雜湊)"""
+        url = f"{BASE_URL}/api/account/login"
+        pwd_hash = format_password_hash(password)
+
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+            "cache-control": "no-cache",
+            "content-type": "application/json;charset=UTF-8",
+            "origin": BASE_URL,
+            "pragma": "no-cache",
+            "referer": f"{BASE_URL}/user/",
+            "user-agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+            ),
+            "x-api-key": api_key,
+        }
+        payload = {
+            "member_id": str(member_id).strip(),
+            "password": pwd_hash,
+            "password_repeat": pwd_hash,
+        }
+
+        if debug:
+            print("\n" + "=" * 60)
+            print(f"🐛 [DEBUG LOGIN REQUEST] POST {url}")
+            print(f"▸ Member ID: {member_id}")
+            print(f"▸ Payload:\n{json.dumps(payload, indent=2)}")
+            print("=" * 60)
+
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+
+        if debug:
+            print(f"🐛 [DEBUG LOGIN RESPONSE] Status: {response.status_code}")
+            print("▸ Response Headers:", dict(response.headers))
+            print("▸ Response Body:", response.text)
+
+        data = response.json()
+        if data.get("status") != 0 and data.get("code") != 0:
+            err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
+            raise RuntimeError(f"帳號登入失敗: {err}")
+
+        token = (
+            data.get("token")
+            or response.headers.get("x-api-token")
+            or response.headers.get("X-Api-Token")
+            or data.get("api_token")
+        )
+        uid = (
+            data.get("member_id")
+            or response.headers.get("x-api-uid")
+            or response.headers.get("X-Api-Uid")
+            or data.get("api_uid")
+            or member_id
+        )
+
+        if not token:
+            raise RuntimeError("登入失敗：伺服器回應中未包含有效的 x-api-token 憑證標頭")
+
+        return {
+            "api_key": api_key,
+            "api_token": token,
+            "api_uid": uid,
+            "raw_response": data,
+        }
+
+    def _ensure_valid_token(self) -> None:
+        """檢查當前 Token 是否已超過 24 小時；若是且提供有帳號密碼，則自動重新登入續約 Token！"""
+        now = time.time()
+        elapsed = now - self.last_login_time
+
+        # 已有 Token 且未滿 24 小時 (86400 秒)
+        if self.api_token and self.api_uid and (elapsed < self.refresh_seconds):
+            return
+
+        if self.member_id and self.password:
+            try:
+                login_info = self.login(
+                    member_id=self.member_id,
+                    password=self.password,
+                    api_key=self.api_key,
+                    debug=self.debug,
+                )
+                self.api_token = login_info["api_token"]
+                self.api_uid = login_info["api_uid"]
+                self.last_login_time = now
+                self._update_session_headers()
+            except Exception as e:
+                if not self.api_token:
+                    raise e
+
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
-        """發送 HTTP 請求並支援 --debug 詳細日誌列印"""
+        """發送 HTTP 請求 (自動在發送前進行 24 小時 Token 有效性檢查與續約)"""
+        self._ensure_valid_token()
+
         if self.debug:
             print("\n" + "=" * 60)
             print(f"🐛 [DEBUG REQUEST] HTTP {method.upper()} {url}")
@@ -632,19 +780,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--member-id",
+        default=os.getenv("WINCHARGE_MEMBER_ID"),
+        help="帳號/手機號碼 (可透過環境變數 WINCHARGE_MEMBER_ID 設定)",
+    )
+    parser.add_argument(
+        "--password-hash",
+        default=os.getenv("WINCHARGE_PASSWORD_HASH") or os.getenv("WINCHARGE_PASSWORD"),
+        help="登入密碼 32 位 MD5 雜湊值 (請直接輸入在瀏覽器 F12 DevTools 擷取的 32 位 MD5 雜湊值，也可透過 WINCHARGE_PASSWORD_HASH 設定)",
+    )
+    parser.add_argument(
         "--api-key",
-        default=os.getenv("WINCHARGE_API_KEY"),
-        help="API Key (可透過環境變數 WINCHARGE_API_KEY 設定)",
+        default=os.getenv("WINCHARGE_API_KEY", DEFAULT_API_KEY),
+        help="API Key (可透過環境變數 WINCHARGE_API_KEY 設定，預設已置入系統預設值)",
     )
     parser.add_argument(
         "--api-token",
         default=os.getenv("WINCHARGE_API_TOKEN"),
-        help="API Token (可透過環境變數 WINCHARGE_API_TOKEN 設定)",
+        help="API Token (選填，可透過環境變數 WINCHARGE_API_TOKEN 設定)",
     )
     parser.add_argument(
         "--api-uid",
         default=os.getenv("WINCHARGE_API_UID"),
-        help="API UID (可透過環境變數 WINCHARGE_API_UID 設定)",
+        help="API UID (選填，可透過環境變數 WINCHARGE_API_UID 設定)",
     )
     parser.add_argument(
         "--debug",
@@ -723,29 +881,30 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    missing_auth = []
-    if not args.api_key:
-        missing_auth.append("--api-key / WINCHARGE_API_KEY")
-    if not args.api_token:
-        missing_auth.append("--api-token / WINCHARGE_API_TOKEN")
-    if not args.api_uid:
-        missing_auth.append("--api-uid / WINCHARGE_API_UID")
+    has_credentials = bool(args.member_id and args.password_hash)
+    has_tokens = bool(args.api_token and args.api_uid)
 
-    if missing_auth:
-        parser.error("缺少認證標頭參數:\n  - " + "\n  - ".join(missing_auth))
+    if not has_credentials and not has_tokens:
+        parser.error(
+            "請提供認證資訊！可以選擇下列兩種方式之一：\n"
+            "  1. 提供帳號與密碼雜湊: --member-id / WINCHARGE_MEMBER_ID 與 --password-hash / WINCHARGE_PASSWORD_HASH\n"
+            "  2. 提供直接 Token: --api-token / WINCHARGE_API_TOKEN 與 --api-uid / WINCHARGE_API_UID"
+        )
 
     try:
         client = WinChargeClient(
-            api_key=args.api_key,
+            api_key=args.api_key or DEFAULT_API_KEY,
             api_token=args.api_token,
             api_uid=args.api_uid,
+            member_id=args.member_id,
+            password=args.password_hash,
             debug=args.debug,
         )
-    except ValueError as val_err:
+    except Exception as err:
         if getattr(args, "json", False):
-            print(json.dumps({"error": f"JWT 認證頭驗證失敗: {val_err}", "status": -1}, ensure_ascii=False))
+            print(json.dumps({"error": f"認證失敗: {err}", "status": -1}, ensure_ascii=False))
         else:
-            print(f"❌ JWT 認證頭驗證失敗: {val_err}", file=sys.stderr)
+            print(f"❌ 認證失敗: {err}", file=sys.stderr)
         sys.exit(1)
 
     try:

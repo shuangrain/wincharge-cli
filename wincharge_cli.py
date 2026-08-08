@@ -11,8 +11,10 @@
 """
 
 from custom_components.wincharge.wincharge_cli import (
+    DEFAULT_API_KEY,
     WinChargeClient,
     build_parser,
+    format_password_hash,
     get_active_order_id,
     handle_history,
     handle_start,
@@ -26,8 +28,10 @@ from custom_components.wincharge.wincharge_cli import (
 )
 
 __all__ = [
+    "DEFAULT_API_KEY",
     "WinChargeClient",
     "build_parser",
+    "format_password_hash",
     "get_active_order_id",
     "handle_history",
     "handle_start",

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
-from .wincharge_cli import WinChargeClient
+from .wincharge_cli import DEFAULT_API_KEY, WinChargeClient
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
@@ -24,11 +24,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     config = entry.data
-    api_key = config["api_key"]
-    api_token = config["api_token"]
-    api_uid = config["api_uid"]
+    api_key = config.get("api_key", DEFAULT_API_KEY)
+    api_token = config.get("api_token")
+    api_uid = config.get("api_uid")
+    member_id = config.get("member_id")
+    password = config.get("password_hash") or config.get("password")
 
-    client = await hass.async_add_executor_job(WinChargeClient, api_key, api_token, api_uid)
+    def create_client():
+        return WinChargeClient(
+            api_key=api_key,
+            api_token=api_token,
+            api_uid=api_uid,
+            member_id=member_id,
+            password=password,
+            refresh_hours=24,
+        )
+
+    client = await hass.async_add_executor_job(create_client)
 
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
