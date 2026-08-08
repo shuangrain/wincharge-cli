@@ -216,6 +216,8 @@ class WinChargeClient:
         url = f"{BASE_URL}/api/account/login"
         pwd_hash = format_password_hash(password)
 
+        _LOGGER.info("🔑 [WinCharge] 開始發送 POST /api/account/login 登入請求 (Member ID: %s)...", member_id)
+
         headers = {
             "accept": "application/json, text/plain, */*",
             "accept-language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -243,8 +245,12 @@ class WinChargeClient:
             print(f"▸ Payload:\n{json.dumps(payload, indent=2)}")
             print("=" * 60)
 
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+        except Exception as http_err:
+            _LOGGER.error("❌ [WinCharge] 登入 HTTP 請求失敗 (Member ID: %s): %s", member_id, http_err)
+            raise http_err
 
         if debug:
             print(f"🐛 [DEBUG LOGIN RESPONSE] Status: {response.status_code}")
@@ -254,6 +260,7 @@ class WinChargeClient:
         data = response.json()
         if data.get("status") != 0 and data.get("code") != 0:
             err = translate_error(data.get("error_msg", "未知錯誤"), data.get("status"))
+            _LOGGER.error("❌ [WinCharge] 帳號登入失敗 (Member ID: %s): %s", member_id, err)
             raise RuntimeError(f"帳號登入失敗: {err}")
 
         token = (
@@ -271,7 +278,10 @@ class WinChargeClient:
         )
 
         if not token:
+            _LOGGER.error("❌ [WinCharge] 登入失敗：伺服器回應未包含有效的 x-api-token 憑證標頭")
             raise RuntimeError("登入失敗：伺服器回應中未包含有效的 x-api-token 憑證標頭")
+
+        _LOGGER.info("✅ [WinCharge] 帳號登入成功！(UID: %s, Member ID: %s)", uid, member_id)
 
         return {
             "api_key": api_key,
