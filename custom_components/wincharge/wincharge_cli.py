@@ -47,6 +47,8 @@ ERROR_TRANSLATION_MAP = {
 STATUS_TRANSLATION_MAP = {
     64: "交易密碼驗證失敗，請確認輸入的交易密碼 (payment_password) 是否正確",
     17: "充電樁目前正由其他使用者佔用或正在充電中",
+    18: "充電槍已拔除或充電樁斷線 (ERROR_CHARGER_DISCONNECTED)",
+    36: "此充電訂單已無法透過 API 停止或實體槍已拔除 (ERROR_STOP_TRANSACTION)",
 }
 
 
@@ -558,16 +560,31 @@ class WinChargeClient:
 
 
 def get_active_order_id(client: WinChargeClient | None = None) -> str | None:
-    """動態獲取當前活躍訂單 ID：優先從線上 API 查詢，找不到再從本機快取檔讀取"""
+    """動態獲取當前活躍訂單 ID：優先從線上 API 查詢 (自動過濾過期殭屍訂單)，找不到再從本機快取檔讀取"""
     if client:
         try:
             active_list = client.get_active_transactions()
             if active_list and len(active_list) > 0:
-                first_order = active_list[0]
-                order_id = first_order.get("order_id") or first_order.get("id")
-                if order_id:
-                    save_last_order(str(order_id))
-                    return str(order_id)
+                valid_orders = []
+                for item in active_list:
+                    raw_energy = float(item.get("energy", 0.0))
+                    duration = int(item.get("duration", 0))
+                    # 若充電度數為 0 且持續時間超過 24 小時 (86400 秒)，判定為 WinCharge 伺服器殭屍訂單進行過濾
+                    if raw_energy == 0.0 and duration > 86400:
+                        _LOGGER.warning(
+                            "⚠️ [WinCharge] 自動過濾雲端殭屍訂單 [%s] (已卡住 %d 秒且充電度數為 0)",
+                            item.get("order_id"),
+                            duration,
+                        )
+                        continue
+                    valid_orders.append(item)
+
+                if valid_orders:
+                    first_order = valid_orders[0]
+                    order_id = first_order.get("order_id") or first_order.get("id")
+                    if order_id:
+                        save_last_order(str(order_id))
+                        return str(order_id)
         except Exception:
             pass
 
