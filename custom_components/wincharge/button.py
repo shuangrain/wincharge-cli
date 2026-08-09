@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
@@ -11,6 +11,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .wincharge_cli import WinChargeClient, get_active_order_id, save_last_order
+
+if TYPE_CHECKING:
+    from . import WinChargeDataUpdateCoordinator
 
 DOMAIN = "wincharge"
 _LOGGER = logging.getLogger(__name__)
@@ -24,12 +27,14 @@ async def async_setup_entry(
     """設定 WinCharge 按鈕實體。"""
     data = hass.data[DOMAIN][entry.entry_id]
     client: WinChargeClient = data["client"]
+    coordinator: WinChargeDataUpdateCoordinator = data["coordinator"]
     config = data["config"]
 
     async_add_entities(
         [
-            WinChargeStartButton(client, config, entry.entry_id),
-            WinChargeStopButton(client, config, entry.entry_id),
+            WinChargeStartButton(client, coordinator, config, entry.entry_id),
+            WinChargeStopButton(client, coordinator, config, entry.entry_id),
+            WinChargeRefreshButton(coordinator, config, entry.entry_id),
         ]
     )
 
@@ -37,8 +42,15 @@ async def async_setup_entry(
 class WinChargeStartButton(ButtonEntity):
     """開啟充電控制按鈕。"""
 
-    def __init__(self, client: WinChargeClient, config: dict[str, Any], entry_id: str):
+    def __init__(
+        self,
+        client: WinChargeClient,
+        coordinator: WinChargeDataUpdateCoordinator,
+        config: dict[str, Any],
+        entry_id: str,
+    ):
         self._client = client
+        self._coordinator = coordinator
         self._config = config
         self._attr_name = "開始充電"
         self._attr_unique_id = f"wincharge_start_btn_{entry_id}"
@@ -95,6 +107,7 @@ class WinChargeStartButton(ButtonEntity):
                 save_last_order(order_id)
                 self._client.start_transaction(order_id=order_id, phone=phone, invoice_data=invoice)
                 _LOGGER.info("成功發送開啟充電指令！Order ID: %s", order_id)
+                self.hass.async_create_task(self._coordinator.async_request_refresh())
         except Exception as err:
             _LOGGER.error("開啟充電失敗: %s", err)
 
@@ -102,8 +115,15 @@ class WinChargeStartButton(ButtonEntity):
 class WinChargeStopButton(ButtonEntity):
     """停止充電控制按鈕。"""
 
-    def __init__(self, client: WinChargeClient, config: dict[str, Any], entry_id: str):
+    def __init__(
+        self,
+        client: WinChargeClient,
+        coordinator: WinChargeDataUpdateCoordinator,
+        config: dict[str, Any],
+        entry_id: str,
+    ):
         self._client = client
+        self._coordinator = coordinator
         self._config = config
         self._attr_name = "停止充電"
         self._attr_unique_id = f"wincharge_stop_btn_{entry_id}"
@@ -136,8 +156,26 @@ class WinChargeStopButton(ButtonEntity):
         try:
             self._client.stop_transaction(order_id)
             _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
+            self.hass.async_create_task(self._coordinator.async_request_refresh())
         except Exception as err:
             _LOGGER.error("停止充電失敗: %s", err)
             # 若遇到 status 36 (ERROR_STOP_TRANSACTION)，代表該訂單在伺服器端已無法停止，自動解開卡住狀態
             if "status: 36" in str(err) or "ERROR_STOP_TRANSACTION" in str(err):
                 _LOGGER.warning("⚠️ 訂單 [%s] 在伺服器端已無法停止 (status 36)，自動重置卡住狀態", order_id)
+                self.hass.async_create_task(self._coordinator.async_request_refresh())
+
+
+class WinChargeRefreshButton(ButtonEntity):
+    """手動即時重新整理數據控制按鈕。"""
+
+    def __init__(self, coordinator: WinChargeDataUpdateCoordinator, config: dict[str, Any], entry_id: str):
+        self._coordinator = coordinator
+        self._config = config
+        self._attr_name = "重新整理數據"
+        self._attr_unique_id = f"wincharge_refresh_btn_{entry_id}"
+        self._attr_icon = "mdi:refresh"
+
+    async def async_press(self) -> None:
+        """點擊手動即時發送 API 請求抓取最新數據。"""
+        _LOGGER.info("🔄 [WinCharge] 使用者點擊【重新整理數據】按鈕，強制發起即時更新...")
+        await self._coordinator.async_request_refresh()

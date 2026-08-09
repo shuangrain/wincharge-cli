@@ -41,9 +41,9 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 
 ---
 
-## 🏠 Home Assistant (HA) 整合指南
+## 🏠 Home Assistant (HA) 整合與雙重動態輪詢指南
 
-本專案原生支援 **HACS 自訂儲存庫 (Custom Repository)** 圖形化安裝與 UI 自動登入驗證。
+本專案原生支援 **HACS 自訂儲存庫 (Custom Repository)** 圖形化安裝、UI 自動登入驗證、**雙重動態輪詢 (Dual Dynamic Polling)** 與 **手動即時刷新按鈕**。
 
 1. 開啟 Home Assistant 的 **HACS** 介面。
 2. 點擊右上角三點選單 ➔ 選擇 **「Custom repositories (自訂儲存庫)」**。
@@ -53,15 +53,22 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 6. 重新啟動 Home Assistant。
 7. 前往 **設定 ➔ 裝置與服務 ➔ 新增整合**，搜尋 **WinCharge**：
    - 輸入 **手機號碼 / 帳號 (`member_id`)**
-   - 輸入 **登入密碼 32 位 MD5 雜湊 (`password_hash`)**（請直接輸入在 F12 DevTools 擷取的 32 位 MD5 雜湊）
+   - 輸入 **登入密碼 32 位 MD5 雜湊 (`password_hash`)**
    - 輸入 **交易密碼 (`payment_password`)**
    - 輸入 **充電樁 ID (`charger_id`)**
-   - 輸入 **自訂快取續約週期小時數 (`refresh_hours`)**（預設 24 小時）
-8. 系統自動測試登入，Log 會即時印出原廠 JWT Token 的正式過期時間 (如 `原廠 JWT 效期至: 2046-08-09 15:30:00`)，成功後即刻建立實體與按鈕，並啟用設定檔 Token 背景自動續約！
+   - 設定 **待命時重新整理間隔 (`idle_interval`)**（預設 60 秒）
+   - 設定 **充電中重新整理間隔 (`charging_interval`)**（預設 10 秒）
+   - 設定 **Token 登入快取續約週期 (`refresh_hours`)**（預設 24 小時）
+8. 系統自動測試登入，建立感測器與控制按鈕：
+   - ⚡ **【開始充電】按鈕** (`button.wincharge_start_btn`)
+   - ⏹️ **【停止充電】按鈕** (`button.wincharge_stop_btn`)
+   - 🔄 **【重新整理數據】按鈕** (`button.wincharge_refresh_btn`)：點擊立刻強制向 WinCharge API 抓取最新數據！
 
 > [!TIP]
-> **重新設定 (Reconfigure) 支援**  
-> 若後續修改了 WinCharge 密碼、充電樁 ID 或想要自訂快取續約小時數，隨時可在 Home Assistant 整合卡片點擊 **【重新設定 (Reconfigure)】** 進行更新，無需刪除重新安裝。
+> **⚡ 雙重動態輪詢機制 (Dual Dynamic Polling)**  
+> - 🟢 **待命狀態 (Idle)**：自動切換為低頻輪詢（預設 60 秒），節省 API 流量與伺服器負擔。  
+> - ⚡ **充電狀態 (Charging)**：系統檢測到開始充電後，自動加速切換為高頻輪詢（預設 10 秒），充電曲線、度數與金額即時滑順更新！  
+> - 🔄 **在畫面上看著時**：點擊卡片上的【重新整理數據】按鈕，立刻零延遲發送 API 抓取最新資訊！
 
 ---
 
