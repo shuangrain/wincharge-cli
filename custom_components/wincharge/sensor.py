@@ -74,26 +74,34 @@ class WinChargeStatusSensor(SensorEntity):
 
                 if state_code in (1, 2):
                     raw_energy = float(res.get("energy", 0.0))
-                    energy_kwh = round(raw_energy / 1000.0, 3)
-                    tou_list = parse_tou_map(res.get("tou_price_power_map"))
+                    duration = int(res.get("duration", 0))
 
-                    self._state = state_map.get(state_code, f"充電中 (Code {state_code})")
-                    self._attributes = {
-                        "order_id": order_id,
-                        "charger": res.get("charger"),
-                        "connector": res.get("connector"),
-                        "started_timestamp": res.get("started"),
-                        "duration_seconds": res.get("duration"),
-                        "energy_kwh": energy_kwh,
-                        "energy_wh": raw_energy,
-                        "fee_ntd": res.get("fee"),
-                        "fee_of_unit": res.get("fee_of_unit"),
-                        "fee_description": res.get("fee_description"),
-                        "charging_discount": res.get("charging_discount"),
-                        "is_tou_charging": res.get("is_tou_charging"),
-                        "tou_breakdown": tou_list,
-                    }
-                    return
+                    # 雙重防護：若度數為 0 且持續時間超過 24 小時 (86400 秒)，判定為殭屍訂單自動忽略
+                    if raw_energy == 0.0 and duration > 86400:
+                        _LOGGER.warning(
+                            "⚠️ [WinCharge] 感測器過濾殭屍訂單 [%s] (已卡住 %d 秒且度數為 0)", order_id, duration
+                        )
+                    else:
+                        energy_kwh = round(raw_energy / 1000.0, 3)
+                        tou_list = parse_tou_map(res.get("tou_price_power_map"))
+
+                        self._state = state_map.get(state_code, f"充電中 (Code {state_code})")
+                        self._attributes = {
+                            "order_id": order_id,
+                            "charger": res.get("charger"),
+                            "connector": res.get("connector"),
+                            "started_timestamp": res.get("started"),
+                            "duration_seconds": duration,
+                            "energy_kwh": energy_kwh,
+                            "energy_wh": raw_energy,
+                            "fee_ntd": res.get("fee"),
+                            "fee_of_unit": res.get("fee_of_unit"),
+                            "fee_description": res.get("fee_description"),
+                            "charging_discount": res.get("charging_discount"),
+                            "is_tou_charging": res.get("is_tou_charging"),
+                            "tou_breakdown": tou_list,
+                        }
+                        return
             except Exception as err:
                 _LOGGER.warning("查詢訂單 [%s] 充電進度失敗: %s", order_id, err)
 
