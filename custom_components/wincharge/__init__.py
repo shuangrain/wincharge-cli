@@ -29,6 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_uid = config.get("api_uid")
     member_id = config.get("member_id")
     password = config.get("password_hash") or config.get("password")
+    refresh_hours = config.get("refresh_hours", 24)
 
     def create_client():
         return WinChargeClient(
@@ -37,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             api_uid=api_uid,
             member_id=member_id,
             password=password,
-            refresh_hours=24,
+            refresh_hours=refresh_hours,
         )
 
     client = await hass.async_add_executor_job(create_client)

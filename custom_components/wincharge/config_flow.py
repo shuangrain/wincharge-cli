@@ -20,6 +20,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required("password_hash"): str,
         vol.Required("payment_password"): str,
         vol.Optional("charger_id", default="wincharge_ocppv16_SAMPLE123"): str,
+        vol.Optional("refresh_hours", default=24): int,
         vol.Optional("api_key", default=DEFAULT_API_KEY): str,
     }
 )
@@ -95,6 +96,7 @@ class WinChargeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         "charger_id", default=entry.data.get("charger_id", "wincharge_ocppv16_SAMPLE123")
                     ): str,
+                    vol.Optional("refresh_hours", default=entry.data.get("refresh_hours", 24)): int,
                     vol.Optional("api_key", default=entry.data.get("api_key", DEFAULT_API_KEY)): str,
                 }
             ),

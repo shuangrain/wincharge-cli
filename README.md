@@ -18,7 +18,7 @@
 無需複製 (clone) 專案即可透過 `uv` 或 `uvx` 獨立執行：
 
 ### 1. 帳號密碼雜湊自動登入模式 (最推薦 ⭐)
-不再需要手動開啟瀏覽器 F12 開發者工具複製 JWT Token！直接傳入手機號碼與 F12 DevTools 擷取的 32 位 MD5 密碼雜湊，系統自動登入並維護 24 小時 Token 快取：
+不再需要手動開啟瀏覽器 F12 開發者工具複製 JWT Token！直接傳入手機號碼與 F12 DevTools 擷取的 32 位 MD5 密碼雜湊，系統自動登入並維護自訂 Token 快取：
 
 ```bash
 uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --member-id "0911234567" --password-hash "YOUR_32HEX_MD5_HASH" history --count 5
@@ -56,11 +56,12 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
    - 輸入 **登入密碼 32 位 MD5 雜湊 (`password_hash`)**（請直接輸入在 F12 DevTools 擷取的 32 位 MD5 雜湊）
    - 輸入 **交易密碼 (`payment_password`)**
    - 輸入 **充電樁 ID (`charger_id`)**
-8. 系統自動測試登入，成功後即刻建立實體與按鈕，並啟用 24 小時 Token 背景自動續約！
+   - 輸入 **自訂快取續約週期小時數 (`refresh_hours`)**（預設 24 小時）
+8. 系統自動測試登入，Log 會即時印出原廠 JWT Token 的正式過期時間 (如 `原廠 JWT 效期至: 2046-08-09 15:30:00`)，成功後即刻建立實體與按鈕，並啟用設定檔 Token 背景自動續約！
 
 > [!TIP]
 > **重新設定 (Reconfigure) 支援**  
-> 若後續修改了 WinCharge 密碼或充電樁 ID，隨時可在 Home Assistant 整合卡片點擊 **【重新設定 (Reconfigure)】** 進行更新，無需刪除重新安裝。
+> 若後續修改了 WinCharge 密碼、充電樁 ID 或想要自訂快取續約小時數，隨時可在 Home Assistant 整合卡片點擊 **【重新設定 (Reconfigure)】** 進行更新，無需刪除重新安裝。
 
 ---
 
@@ -72,7 +73,7 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 graph TD
     CLI["wincharge-cli CLI"] --> AuthCheck{"認證方式選擇"}
     
-    AuthCheck -->|"帳號密碼雜湊模式 (推薦)"| AutoLogin["呼叫 POST /api/account/login (24小時自動續約)"]
+    AuthCheck -->|"帳號密碼雜湊模式 (推薦)"| AutoLogin["呼叫 POST /api/account/login (自訂小時數自動續約)"]
     AuthCheck -->|"JWT Token 模式"| JWTValidate["解碼與本機驗證 JWT (iss/exp/perms)"]
     
     AutoLogin --> Subcommands{"選擇子指令"}
@@ -86,14 +87,15 @@ graph TD
 
 ---
 
-## 🔐 認證與 24 小時 Token 自動續約機制
+## 🔐 認證與自訂 Token 自動續約機制
 
 系統支援兩種彈性的認證方式：
 
 1. **帳號密碼雜湊模式 (推薦)**：
    - 使用者提供 `member_id`（手機號碼）與 `password_hash`（直接輸入 32 位 MD5 雜湊值）。
    - 第一次呼叫 API 時自動執行 `POST /api/account/login` 取得 JWT `token` 與 `member_id` (UID)。
-   - 在 Home Assistant 或 CLI 運行期間，記憶體會保留 Token。**距離上次登入小於 24 小時內直接使用快取（0 次額外登入）**；滿 24 小時自動在背景重新登入並無感續約 Token。
+   - **Log 自動印出原廠 JWT Token 效期**（例如：`✅ [WinCharge] 帳號登入成功！(UID: U622089052065103882, Member ID: 0911234567, 原廠 JWT 效期至: 2046-08-09 15:30:00)`）。
+   - 支援自訂快取續約週期 `--refresh-hours`（預設 24 小時），未滿設定小時數直接使用快取（0 次額外登入），滿設定小時數自動在背景重新登入並無感續約。
 
 2. **Direct JWT Token 模式**：
    - 傳入原本的 `--api-key`、`--api-token` 與 `--api-uid`。
@@ -159,6 +161,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export WINCHARGE_MEMBER_ID="0911234567"
 export WINCHARGE_PASSWORD_HASH="YOUR_32HEX_MD5_HASH"
 export WINCHARGE_PAYMENT_PASSWORD="YOUR_PAYMENT_PASSWORD"
+export WINCHARGE_REFRESH_HOURS="24"                        # 選用，自訂快取小時數
 export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 ```
 
@@ -171,7 +174,7 @@ export WINCHARGE_CHARGER_ID="wincharge_ocppv16_SAMPLE123" # 選用
 ```text
 usage: wincharge-cli [-h] [--member-id MEMBER_ID] [--password-hash PASSWORD_HASH]
                      [--api-key API_KEY] [--api-token API_TOKEN]
-                     [--api-uid API_UID] [--debug] [--json]
+                     [--api-uid API_UID] [--refresh-hours REFRESH_HOURS] [--debug] [--json]
                      {start,status,stop,history} ...
 
 WinCharge 充電樁 CLI 控制工具 (PEP 723)
@@ -194,6 +197,8 @@ options:
   --api-token API_TOKEN
                         API Token (選填，可透過環境變數 WINCHARGE_API_TOKEN 設定)
   --api-uid API_UID     API UID (選填，可透過環境變數 WINCHARGE_API_UID 設定)
+  --refresh-hours REFRESH_HOURS
+                        自訂快取續約週期小時數 (預設: 24 小時，可透過環境變數 WINCHARGE_REFRESH_HOURS 設定)
   --debug               開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊
   --json                輸出乾淨的 JSON 格式 (適合 Home Assistant / 自動化腳本解析)
 ```

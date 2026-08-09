@@ -142,6 +142,18 @@ def validate_api_token(token: str) -> dict[str, Any]:
     return payload
 
 
+def get_jwt_exp_time_str(token: str) -> str | None:
+    """從 JWT Token 中解碼並格式化過期時間字串 (exp)"""
+    try:
+        payload = validate_api_token(token)
+        exp = payload.get("exp")
+        if exp is not None:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(exp))
+    except Exception:
+        pass
+    return None
+
+
 class WinChargeClient:
     def __init__(
         self,
@@ -281,7 +293,9 @@ class WinChargeClient:
             _LOGGER.error("❌ [WinCharge] 登入失敗：伺服器回應未包含有效的 x-api-token 憑證標頭")
             raise RuntimeError("登入失敗：伺服器回應中未包含有效的 x-api-token 憑證標頭")
 
-        _LOGGER.info("✅ [WinCharge] 帳號登入成功！(UID: %s, Member ID: %s)", uid, member_id)
+        exp_str = get_jwt_exp_time_str(token)
+        exp_info = f", 原廠 JWT 效期至: {exp_str}" if exp_str else ""
+        _LOGGER.info("✅ [WinCharge] 帳號登入成功！(UID: %s, Member ID: %s%s)", uid, member_id, exp_info)
 
         return {
             "api_key": api_key,
@@ -291,19 +305,21 @@ class WinChargeClient:
         }
 
     def _ensure_valid_token(self) -> None:
-        """檢查當前 Token 是否已超過 24 小時；若是且提供有帳號密碼，則自動重新登入續約 Token！"""
+        """檢查當前 Token 是否已超過自訂快取時間；若是且提供有帳號密碼，則自動重新登入續約 Token！"""
         now = time.time()
         elapsed = now - self.last_login_time
 
-        # 已有 Token 且未滿 24 小時 (86400 秒)
+        # 已有 Token 且未滿快取設定時間
         if self.api_token and self.api_uid and (elapsed < self.refresh_seconds):
             return
 
         if self.member_id and self.password:
             hours_passed = round(elapsed / 3600.0, 1) if self.last_login_time else 0
+            refresh_h = round(self.refresh_seconds / 3600.0, 1)
             _LOGGER.info(
-                "🔑 [WinCharge] 距離上次登入已過 %.1f 小時，執行自動登入取得最新 API Token (Member ID: %s)...",
+                "🔑 [WinCharge] 距離上次登入已過 %.1f 小時 (快取設定週期: %.1f 小時)，執行自動登入取得最新 API Token (Member ID: %s)...",
                 hours_passed,
+                refresh_h,
                 self.member_id,
             )
             try:
@@ -317,7 +333,9 @@ class WinChargeClient:
                 self.api_uid = login_info["api_uid"]
                 self.last_login_time = now
                 self._update_session_headers()
-                _LOGGER.info("✅ [WinCharge] 自動登入成功，已取得最新 Token (UID: %s)", self.api_uid)
+                exp_str = get_jwt_exp_time_str(self.api_token)
+                exp_info = f", 原廠 JWT 效期至: {exp_str}" if exp_str else ""
+                _LOGGER.info("✅ [WinCharge] 自動登入成功，已取得最新 Token (UID: %s%s)", self.api_uid, exp_info)
             except Exception as e:
                 _LOGGER.error("❌ [WinCharge] 自動登入失敗: %s", e)
                 if not self.api_token:
@@ -825,6 +843,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="API UID (選填，可透過環境變數 WINCHARGE_API_UID 設定)",
     )
     parser.add_argument(
+        "--refresh-hours",
+        type=int,
+        default=int(os.getenv("WINCHARGE_REFRESH_HOURS", "24")),
+        help="自訂快取續約週期小時數 (預設: 24 小時，可透過環境變數 WINCHARGE_REFRESH_HOURS 設定)",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="開啟 Debug 模式，印出完整的 Raw HTTP Request 與 Response 資訊",
@@ -919,6 +943,7 @@ def main():
             member_id=args.member_id,
             password=args.password_hash,
             debug=args.debug,
+            refresh_hours=args.refresh_hours,
         )
     except Exception as err:
         if getattr(args, "json", False):
