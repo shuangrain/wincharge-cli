@@ -49,17 +49,27 @@ class WinChargeStartButton(ButtonEntity):
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         payment_password = self._config["payment_password"]
 
-        # 防護 1：檢查最新訂單是否正處於充電中
+        # 防護 1：檢查最新訂單是否正處於充電中 (自動忽略超過 24 小時且 0kWh 的雲端殭屍訂單)
         last_order = get_active_order_id(self._client)
         if last_order:
             try:
                 status_res = self._client.get_transaction_status(last_order)
-                if status_res.get("state") == 2:  # 2: 充電中
+                state = status_res.get("state")
+                raw_energy = float(status_res.get("energy", 0.0))
+                duration = int(status_res.get("duration", 0))
+
+                if state == 2 and not (raw_energy == 0.0 and duration > 86400):
                     _LOGGER.warning(
                         "⚠️ 充電樁目前正處於充電狀態中 (Order ID: %s)，已自動攔截重複啟動請求！",
                         last_order,
                     )
                     return
+                elif raw_energy == 0.0 and duration > 86400:
+                    _LOGGER.warning(
+                        "⚠️ 檢測到雲端殭屍訂單 [%s] (已卡住 %d 秒且度數為 0)，忽略並允許發起新充電！",
+                        last_order,
+                        duration,
+                    )
             except Exception:
                 pass
 
@@ -110,7 +120,10 @@ class WinChargeStopButton(ButtonEntity):
         try:
             status_res = self._client.get_transaction_status(order_id)
             state = status_res.get("state")
-            if state != 2:
+            raw_energy = float(status_res.get("energy", 0.0))
+            duration = int(status_res.get("duration", 0))
+
+            if state != 2 and not (raw_energy == 0.0 and duration > 86400):
                 _LOGGER.warning(
                     "⚠️ 訂單 (Order ID: %s) 當前非充電狀態 (Code: %s)，已自動攔截停止充電請求！",
                     order_id,
@@ -125,3 +138,6 @@ class WinChargeStopButton(ButtonEntity):
             _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
         except Exception as err:
             _LOGGER.error("停止充電失敗: %s", err)
+            # 若遇到 status 36 (ERROR_STOP_TRANSACTION)，代表該訂單在伺服器端已無法停止，自動解開卡住狀態
+            if "status: 36" in str(err) or "ERROR_STOP_TRANSACTION" in str(err):
+                _LOGGER.warning("⚠️ 訂單 [%s] 在伺服器端已無法停止 (status 36)，自動重置卡住狀態", order_id)
