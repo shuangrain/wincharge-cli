@@ -10,7 +10,20 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+try:
+    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+except ImportError:
+    # 當以獨立 CLI 模式運行時 (無 homeassistant 套件)，建立虛擬類別以避免頂層載入失敗
+    class DataUpdateCoordinator:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __class_getitem__(cls, item: Any) -> type:
+            return cls
+
+    class UpdateFailed(Exception):  # type: ignore[no-redef]
+        pass
+
 
 from .wincharge_cli import DEFAULT_API_KEY, WinChargeClient, get_active_order_id
 
