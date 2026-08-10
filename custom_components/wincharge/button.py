@@ -56,41 +56,41 @@ class WinChargeStartButton(ButtonEntity):
         self._attr_unique_id = f"wincharge_start_btn_{entry_id}"
         self._attr_icon = "mdi:play-circle-outline"
 
-    def press(self) -> None:
-        """點擊開啟充電。"""
+    async def async_press(self) -> None:
+        """點擊開啟充電 (非同步線程安全模式)。"""
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         payment_password = self._config["payment_password"]
 
-        # 防護 1：檢查最新訂單是否正處於充電中 (自動忽略超過 24 小時且 0kWh 的雲端殭屍訂單)
-        last_order = get_active_order_id(self._client)
-        if last_order:
-            try:
-                status_res = self._client.get_transaction_status(last_order)
-                state = status_res.get("state")
-                raw_energy = float(status_res.get("energy", 0.0))
-                duration = int(status_res.get("duration", 0))
+        def _do_start() -> str | None:
+            # 防護 1：檢查最新訂單是否正處於充電中 (自動忽略超過 24 小時且 0kWh 的雲端殭屍訂單)
+            last_order = get_active_order_id(self._client)
+            if last_order:
+                try:
+                    status_res = self._client.get_transaction_status(last_order)
+                    state = status_res.get("state")
+                    raw_energy = float(status_res.get("energy", 0.0))
+                    duration = int(status_res.get("duration", 0))
 
-                if state == 2 and not (raw_energy == 0.0 and duration > 86400):
-                    _LOGGER.warning(
-                        "⚠️ 充電樁目前正處於充電狀態中 (Order ID: %s)，已自動攔截重複啟動請求！",
-                        last_order,
-                    )
-                    return
-                elif raw_energy == 0.0 and duration > 86400:
-                    _LOGGER.warning(
-                        "⚠️ 檢測到雲端殭屍訂單 [%s] (已卡住 %d 秒且度數為 0)，忽略並允許發起新充電！",
-                        last_order,
-                        duration,
-                    )
-            except Exception:
-                pass
+                    if state == 2 and not (raw_energy == 0.0 and duration > 86400):
+                        _LOGGER.warning(
+                            "⚠️ 充電樁目前正處於充電狀態中 (Order ID: %s)，已自動攔截重複啟動請求！",
+                            last_order,
+                        )
+                        return None
+                    elif raw_energy == 0.0 and duration > 86400:
+                        _LOGGER.warning(
+                            "⚠️ 檢測到雲端殭屍訂單 [%s] (已卡住 %d 秒且度數為 0)，忽略並允許發起新充電！",
+                            last_order,
+                            duration,
+                        )
+                except Exception:
+                    pass
 
-        try:
             # 防護 2：檢查充電樁即時可用狀態
             charger_info = self._client.get_charger_info(charger_id)
             if not charger_info.get("available", True):
                 _LOGGER.warning("⚠️ 充電樁 [%s] 當前顯示為不可用 (告警或使用中)，自動中斷啟動請求！", charger_id)
-                return
+                return None
 
             account = self._client.get_account_info()
             phone = account.get("contact")
@@ -107,7 +107,13 @@ class WinChargeStartButton(ButtonEntity):
                 save_last_order(order_id)
                 self._client.start_transaction(order_id=order_id, phone=phone, invoice_data=invoice)
                 _LOGGER.info("成功發送開啟充電指令！Order ID: %s", order_id)
-                self.hass.async_create_task(self._coordinator.async_request_refresh())
+                return str(order_id)
+            return None
+
+        try:
+            order_id = await self.hass.async_add_executor_job(_do_start)
+            if order_id:
+                await self._coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("開啟充電失敗: %s", err)
 
@@ -129,40 +135,50 @@ class WinChargeStopButton(ButtonEntity):
         self._attr_unique_id = f"wincharge_stop_btn_{entry_id}"
         self._attr_icon = "mdi:stop-circle-outline"
 
-    def press(self) -> None:
-        """點擊停止充電。"""
-        order_id = get_active_order_id(self._client)
-        if not order_id:
-            _LOGGER.error("無法停止：找不到活躍的 order_id 紀錄")
-            return
+    async def async_press(self) -> None:
+        """點擊停止充電 (非同步線程安全模式)。"""
 
-        # 防護：確認訂單處於充電中 (state == 2) 才允許停止
+        def _do_stop() -> bool:
+            order_id = get_active_order_id(self._client)
+            if not order_id:
+                _LOGGER.error("無法停止：找不到活躍的 order_id 紀錄")
+                return False
+
+            # 防護：確認訂單處於充電中 (state == 2) 才允許停止
+            try:
+                status_res = self._client.get_transaction_status(order_id)
+                state = status_res.get("state")
+                raw_energy = float(status_res.get("energy", 0.0))
+                duration = int(status_res.get("duration", 0))
+
+                if state != 2 and not (raw_energy == 0.0 and duration > 86400):
+                    _LOGGER.warning(
+                        "⚠️ 訂單 (Order ID: %s) 當前非充電狀態 (Code: %s)，已自動攔截停止充電請求！",
+                        order_id,
+                        state,
+                    )
+                    return False
+            except Exception:
+                pass
+
+            try:
+                self._client.stop_transaction(order_id)
+                _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
+                return True
+            except Exception as err:
+                _LOGGER.error("停止充電失敗: %s", err)
+                # 若遇到 status 36 (ERROR_STOP_TRANSACTION)，代表該訂單在伺服器端已無法停止，自動解開卡住狀態
+                if "status: 36" in str(err) or "ERROR_STOP_TRANSACTION" in str(err):
+                    _LOGGER.warning("⚠️ 訂單 [%s] 在伺服器端已無法停止 (status 36)，自動重置卡住狀態", order_id)
+                    return True
+                raise err
+
         try:
-            status_res = self._client.get_transaction_status(order_id)
-            state = status_res.get("state")
-            raw_energy = float(status_res.get("energy", 0.0))
-            duration = int(status_res.get("duration", 0))
-
-            if state != 2 and not (raw_energy == 0.0 and duration > 86400):
-                _LOGGER.warning(
-                    "⚠️ 訂單 (Order ID: %s) 當前非充電狀態 (Code: %s)，已自動攔截停止充電請求！",
-                    order_id,
-                    state,
-                )
-                return
-        except Exception:
-            pass
-
-        try:
-            self._client.stop_transaction(order_id)
-            _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
-            self.hass.async_create_task(self._coordinator.async_request_refresh())
+            should_refresh = await self.hass.async_add_executor_job(_do_stop)
+            if should_refresh:
+                await self._coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.error("停止充電失敗: %s", err)
-            # 若遇到 status 36 (ERROR_STOP_TRANSACTION)，代表該訂單在伺服器端已無法停止，自動解開卡住狀態
-            if "status: 36" in str(err) or "ERROR_STOP_TRANSACTION" in str(err):
-                _LOGGER.warning("⚠️ 訂單 [%s] 在伺服器端已無法停止 (status 36)，自動重置卡住狀態", order_id)
-                self.hass.async_create_task(self._coordinator.async_request_refresh())
+            _LOGGER.error("停止充電執行異常: %s", err)
 
 
 class WinChargeRefreshButton(ButtonEntity):
