@@ -1,0 +1,74 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WinCharge 充電樁設定",
+        "description": "請輸入 WinCharge 帳號與 32 位密碼雜湊",
+        "data": {
+          "member_id": "手機號碼 / 帳號",
+          "password_hash": "登入密碼 32 位 MD5 雜湊",
+          "payment_password": "交易密碼",
+          "charger_id": "充電樁編號",
+          "idle_interval": "待命時重新整理間隔 (秒)",
+          "charging_interval": "充電中重新整理間隔 (秒)",
+          "refresh_hours": "Token 快取續約週期 (小時)",
+          "api_key": "API Key (選填)"
+        }
+      },
+      "reconfigure": {
+        "title": "重新設定 WinCharge",
+        "description": "更新 WinCharge 認證與充電樁設定",
+        "data": {
+          "member_id": "手機號碼 / 帳號",
+          "password_hash": "登入密碼 32 位 MD5 雜湊",
+          "payment_password": "交易密碼",
+          "charger_id": "充電樁編號",
+          "idle_interval": "待命時重新整理間隔 (秒)",
+          "charging_interval": "充電中重新整理間隔 (秒)",
+          "refresh_hours": "Token 快取續約週期 (小時)",
+          "api_key": "API Key (選填)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "登入 WinCharge 失敗，請確認帳號、密碼雜湊或網路連線。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "充電樁狀態",
+        "state": {
+          "idle": "待命 (充電樁可用)",
+          "preparing": "準備中",
+          "charging": "充電中",
+          "stopped": "已結束",
+          "completed": "已完成",
+          "faulted": "異常中斷",
+          "unplugged": "槍已拔除",
+          "occupied": "待命 (被佔用中)"
+        }
+      },
+      "energy": {
+        "name": "已充電度數"
+      },
+      "fee": {
+        "name": "當前充電費用"
+      },
+      "duration": {
+        "name": "充電持續時間"
+      }
+    },
+    "button": {
+      "start": {
+        "name": "開始充電"
+      },
+      "stop": {
+        "name": "停止充電"
+      },
+      "refresh": {
+        "name": "重新整理數據"
+      }
+    }
+  }
+}

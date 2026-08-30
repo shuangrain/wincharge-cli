@@ -45,7 +45,20 @@ async def async_setup_entry(
 
 
 class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
-    """WinCharge 主充電狀態監控感測器。"""
+    """WinCharge 主充電狀態監控感測器 (標準 Enum 狀態值搭配多國語系翻譯)。"""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [
+        "idle",
+        "preparing",
+        "charging",
+        "stopped",
+        "completed",
+        "faulted",
+        "unplugged",
+        "occupied",
+    ]
+    _attr_translation_key = "status"
 
     def __init__(self, coordinator: WinChargeDataUpdateCoordinator, config: dict[str, Any], entry_id: str):
         super().__init__(coordinator)
@@ -60,24 +73,36 @@ class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
         if data.get("is_charging"):
             state_code = data.get("state_code", 2)
             state_map = {
-                1: "準備中",
-                2: "充電中",
-                3: "已結束",
-                4: "已完成",
-                5: "異常中斷",
-                18: "槍已拔除",
+                1: "preparing",
+                2: "charging",
+                3: "stopped",
+                4: "completed",
+                5: "faulted",
+                18: "unplugged",
             }
-            return state_map.get(state_code, f"充電中 (Code {state_code})")
+            return state_map.get(state_code, "charging")
 
         charger_info = data.get("charger_info", {})
         available = charger_info.get("available", True)
         if "available" in charger_info:
-            return "待命 (充電樁可用)" if available else "待命 (充電樁使用中/告警)"
-        return "待命"
+            return "idle" if available else "occupied"
+        return "idle"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
+        chinese_state_map = {
+            "idle": "待命 (充電樁可用)",
+            "preparing": "準備中",
+            "charging": "充電中",
+            "stopped": "已結束",
+            "completed": "已完成",
+            "faulted": "異常中斷",
+            "unplugged": "槍已拔除",
+            "occupied": "待命 (充電樁使用中/告警)",
+        }
+        state_desc = chinese_state_map.get(self.native_value, "待命")
+
         if data.get("is_charging"):
             res = data.get("transaction", {})
             raw_energy = float(res.get("energy", 0.0))
@@ -85,6 +110,8 @@ class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
             tou_list = parse_tou_map(res.get("tou_price_power_map"))
             return {
                 "order_id": data.get("order_id"),
+                "state_desc": state_desc,
+                "state_code": data.get("state_code", 2),
                 "charger": res.get("charger"),
                 "connector": res.get("connector"),
                 "started_timestamp": res.get("started"),
@@ -104,6 +131,7 @@ class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         return {
             "charger_id": charger_id,
+            "state_desc": state_desc,
             "available": charger_info.get("available", True),
             "site_name": site_info.get("name", "未知站點"),
             "rate": f"NT$ {site_info.get('rate', 0)}/{site_info.get('unit', '度')}",
@@ -113,6 +141,8 @@ class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
 
 class WinChargeEnergySensor(CoordinatorEntity, SensorEntity):
     """已充電度數 (kWh) 感測器。"""
+
+    _attr_translation_key = "energy"
 
     def __init__(self, coordinator: WinChargeDataUpdateCoordinator, config: dict[str, Any], entry_id: str):
         super().__init__(coordinator)
@@ -137,6 +167,8 @@ class WinChargeEnergySensor(CoordinatorEntity, SensorEntity):
 class WinChargeFeeSensor(CoordinatorEntity, SensorEntity):
     """當前充電費用 (NT$) 感測器。"""
 
+    _attr_translation_key = "fee"
+
     def __init__(self, coordinator: WinChargeDataUpdateCoordinator, config: dict[str, Any], entry_id: str):
         super().__init__(coordinator)
         self._config = config
@@ -156,6 +188,8 @@ class WinChargeFeeSensor(CoordinatorEntity, SensorEntity):
 
 class WinChargeDurationSensor(CoordinatorEntity, SensorEntity):
     """充電持續時間 (秒) 感測器。"""
+
+    _attr_translation_key = "duration"
 
     def __init__(self, coordinator: WinChargeDataUpdateCoordinator, config: dict[str, Any], entry_id: str):
         super().__init__(coordinator)

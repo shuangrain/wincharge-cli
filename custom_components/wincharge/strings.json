@@ -1,0 +1,74 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WinCharge",
+        "description": "Please enter your WinCharge credentials",
+        "data": {
+          "member_id": "Member ID / Phone",
+          "password_hash": "Password MD5 Hash (32 hex characters)",
+          "payment_password": "Payment Password",
+          "charger_id": "Charger ID",
+          "idle_interval": "Idle Polling Interval (seconds)",
+          "charging_interval": "Charging Polling Interval (seconds)",
+          "refresh_hours": "Token Cache Refresh Interval (hours)",
+          "api_key": "API Key (Optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure WinCharge",
+        "description": "Update WinCharge configuration",
+        "data": {
+          "member_id": "Member ID / Phone",
+          "password_hash": "Password MD5 Hash (32 hex characters)",
+          "payment_password": "Payment Password",
+          "charger_id": "Charger ID",
+          "idle_interval": "Idle Polling Interval (seconds)",
+          "charging_interval": "Charging Polling Interval (seconds)",
+          "refresh_hours": "Token Cache Refresh Interval (hours)",
+          "api_key": "API Key (Optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to login to WinCharge. Please check credentials or API key."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Charger Status",
+        "state": {
+          "idle": "Idle",
+          "preparing": "Preparing",
+          "charging": "Charging",
+          "stopped": "Stopped",
+          "completed": "Completed",
+          "faulted": "Faulted",
+          "unplugged": "Unplugged",
+          "occupied": "Occupied"
+        }
+      },
+      "energy": {
+        "name": "Energy Charged"
+      },
+      "fee": {
+        "name": "Current Fee"
+      },
+      "duration": {
+        "name": "Charging Duration"
+      }
+    },
+    "button": {
+      "start": {
+        "name": "Start Charging"
+      },
+      "stop": {
+        "name": "Stop Charging"
+      },
+      "refresh": {
+        "name": "Refresh Data"
+      }
+    }
+  }
+}
