@@ -59,7 +59,14 @@ class WinChargeStatusSensor(CoordinatorEntity, SensorEntity):
         data = self.coordinator.data or {}
         if data.get("is_charging"):
             state_code = data.get("state_code", 2)
-            state_map = {1: "準備中", 2: "充電中", 3: "已結束"}
+            state_map = {
+                1: "準備中",
+                2: "充電中",
+                3: "已結束",
+                4: "已完成",
+                5: "異常中斷",
+                18: "槍已拔除",
+            }
             return state_map.get(state_code, f"充電中 (Code {state_code})")
 
         charger_info = data.get("charger_info", {})

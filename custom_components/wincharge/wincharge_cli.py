@@ -710,7 +710,14 @@ def handle_status(client: WinChargeClient, args: argparse.Namespace):
 
     res = client.get_transaction_status(order_id)
 
-    state_map = {1: "準備中", 2: "充電中", 3: "已結束"}
+    state_map = {
+        1: "準備中",
+        2: "充電中",
+        3: "已結束",
+        4: "已完成 (已結算)",
+        5: "異常中斷",
+        18: "槍已拔除",
+    }
     state_code = res.get("state")
     state_desc = state_map.get(state_code, f"未知狀態 ({state_code})")
 
@@ -800,7 +807,14 @@ def handle_history(client: WinChargeClient, args: argparse.Namespace):
         if not isinstance(records, list):
             records = [records]
 
-        state_map = {1: "準備中", 2: "充電中", 3: "已結束", 4: "已完成"}
+        state_map = {
+            1: "準備中",
+            2: "充電中",
+            3: "已結束",
+            4: "已完成",
+            5: "異常中斷",
+            18: "槍已拔除",
+        }
 
         print(f"\n📋 歷史充電紀錄清單 (共 {len(records)} 筆)：")
         for item in records:
