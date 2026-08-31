@@ -45,6 +45,8 @@ ERROR_TRANSLATION_MAP = {
 }
 
 STATUS_TRANSLATION_MAP = {
+    24: "API Token 已過期 (ERROR_TOKEN_EXPIRED)",
+    25: "API Token 無效或未找到 (ERROR_TOKEN_NOT_FOUND)",
     64: "交易密碼驗證失敗，請確認輸入的交易密碼 (payment_password) 是否正確",
     17: "充電樁目前正由其他使用者佔用或正在充電中",
     18: "充電槍已拔除或充電樁斷線 (ERROR_CHARGER_DISCONNECTED)",
@@ -252,6 +254,13 @@ class WinChargeClient:
             "password_repeat": pwd_hash,
         }
 
+        _LOGGER.debug(
+            "🐛 [WinCharge Login Request] POST %s\nHeaders: %s\nPayload: %s",
+            url,
+            headers,
+            payload,
+        )
+
         if debug:
             print("\n" + "=" * 60)
             print(f"🐛 [DEBUG LOGIN REQUEST] POST {url}")
@@ -265,6 +274,13 @@ class WinChargeClient:
         except Exception as http_err:
             _LOGGER.error("❌ [WinCharge] 登入 HTTP 請求失敗 (Member ID: %s): %s", member_id, http_err)
             raise http_err
+
+        _LOGGER.debug(
+            "🐛 [WinCharge Login Response] Status %s\nHeaders: %s\nBody: %s",
+            response.status_code,
+            dict(response.headers),
+            response.text,
+        )
 
         if debug:
             print(f"🐛 [DEBUG LOGIN RESPONSE] Status: {response.status_code}")
@@ -306,6 +322,35 @@ class WinChargeClient:
             "raw_response": data,
         }
 
+    def _force_relogin(self) -> None:
+        """強制重新登入取得全新 Token 並更新 Session"""
+        if self.member_id and self.password:
+            login_info = self.login(
+                member_id=self.member_id,
+                password=self.password,
+                api_key=self.api_key,
+                debug=self.debug,
+            )
+            self.api_token = login_info["api_token"]
+            self.api_uid = login_info["api_uid"]
+            self.last_login_time = time.time()
+            self._update_session_headers()
+            exp_str = get_jwt_exp_time_str(self.api_token)
+            exp_info = f", 原廠 JWT 效期至: {exp_str}" if exp_str else ""
+            _LOGGER.info("✅ [WinCharge] 強制重新登入成功，已換發最新 Token (UID: %s%s)", self.api_uid, exp_info)
+
+    def _is_token_expired_response(self, response: requests.Response) -> bool:
+        """檢查 API 回應是否為 Token 過期或未找到 (HTTP 401 或 status 24/25)"""
+        if response.status_code == 401:
+            return True
+        try:
+            data = response.json()
+            if data.get("status") in (24, 25) or "ERROR_TOKEN" in str(data.get("error_msg", "")):
+                return True
+        except Exception:
+            pass
+        return False
+
     def _ensure_valid_token(self) -> None:
         """檢查當前 Token 是否已超過自訂快取時間；若是且提供有帳號密碼，則自動重新登入續約 Token！"""
         now = time.time()
@@ -325,32 +370,29 @@ class WinChargeClient:
                 self.member_id,
             )
             try:
-                login_info = self.login(
-                    member_id=self.member_id,
-                    password=self.password,
-                    api_key=self.api_key,
-                    debug=self.debug,
-                )
-                self.api_token = login_info["api_token"]
-                self.api_uid = login_info["api_uid"]
-                self.last_login_time = now
-                self._update_session_headers()
-                exp_str = get_jwt_exp_time_str(self.api_token)
-                exp_info = f", 原廠 JWT 效期至: {exp_str}" if exp_str else ""
-                _LOGGER.info("✅ [WinCharge] 自動登入成功，已取得最新 Token (UID: %s%s)", self.api_uid, exp_info)
+                self._force_relogin()
             except Exception as e:
                 _LOGGER.error("❌ [WinCharge] 自動登入失敗: %s", e)
                 if not self.api_token:
                     raise e
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
-        """發送 HTTP 請求 (自動在發送前進行 24 小時 Token 有效性檢查與續約)"""
+        """發送 HTTP 請求 (自動在發送前進行 Token 有效性檢查與續約，並支援 Token 失效自動重登重試)"""
         self._ensure_valid_token()
+
+        merged_headers = {**self.session.headers, **kwargs.get("headers", {})}
+
+        _LOGGER.debug(
+            "🐛 [WinCharge HTTP Request] %s %s\nHeaders: %s\nPayload: %s",
+            method.upper(),
+            url,
+            merged_headers,
+            kwargs.get("json") or kwargs.get("data") or "",
+        )
 
         if self.debug:
             print("\n" + "=" * 60)
             print(f"🐛 [DEBUG REQUEST] HTTP {method.upper()} {url}")
-            merged_headers = {**self.session.headers, **kwargs.get("headers", {})}
             print("▸ Headers:")
             for k, v in merged_headers.items():
                 print(f"    {k}: {v}")
@@ -363,6 +405,16 @@ class WinChargeClient:
 
         response = self.session.request(method, url, **kwargs)
 
+        _LOGGER.debug(
+            "🐛 [WinCharge HTTP Response] %s %s -> Status %s %s\nHeaders: %s\nBody: %s",
+            method.upper(),
+            url,
+            response.status_code,
+            response.reason,
+            dict(response.headers),
+            response.text[:2000] if len(response.text) > 2000 else response.text,
+        )
+
         if self.debug:
             print(f"🐛 [DEBUG RESPONSE] Status: {response.status_code} {response.reason}")
             print("▸ Response Headers:")
@@ -374,6 +426,24 @@ class WinChargeClient:
             except (json.JSONDecodeError, ValueError):
                 print(response.text)
             print("=" * 60 + "\n")
+
+        # 自動自癒：若遇到 Token 過期/未找到 (status 24/25 或 HTTP 401)，自動重新登入並重試該請求！
+        if self._is_token_expired_response(response):
+            if self.member_id and self.password:
+                _LOGGER.warning(
+                    "⚠️ [WinCharge] 伺服器回傳 Token 無效或已過期 (status: 25)，自動強制重新登入並重試請求..."
+                )
+                self._force_relogin()
+                # 重新帶入最新標頭重試一次
+                kwargs["headers"] = {**kwargs.get("headers", {}), **self.session.headers}
+                response = self.session.request(method, url, **kwargs)
+                _LOGGER.debug(
+                    "🐛 [WinCharge HTTP Retry Response] %s %s -> Status %s, Body: %s",
+                    method.upper(),
+                    url,
+                    response.status_code,
+                    response.text,
+                )
 
         return response
 

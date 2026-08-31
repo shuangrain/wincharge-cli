@@ -66,6 +66,7 @@ class WinChargeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _fetch_data(self) -> dict[str, Any]:
         charger_id = self.config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         order_id = get_active_order_id(self.client)
+        _LOGGER.debug("🐛 [WinCharge Coordinator] 開始輪詢資料 (Charger: %s, Order ID: %s)...", charger_id, order_id)
 
         is_charging = False
         data: dict[str, Any] = {"is_charging": False, "order_id": order_id}
@@ -102,6 +103,7 @@ class WinChargeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:
                 _LOGGER.warning("查詢充電樁 [%s] 即時資訊失敗: %s", charger_id, err)
 
+        _LOGGER.debug("🐛 [WinCharge Coordinator] 輪詢完成，最新整合狀態數據: %s", data)
         return data
 
 

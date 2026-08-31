@@ -61,6 +61,8 @@ class WinChargeStartButton(ButtonEntity):
         charger_id = self._config.get("charger_id", "wincharge_ocppv16_SAMPLE123")
         payment_password = self._config["payment_password"]
 
+        _LOGGER.debug("🐛 [WinCharge Button] 點擊【開始充電】按鈕，開始執行充電流程 (Charger: %s)...", charger_id)
+
         def _do_start() -> str | None:
             # 防護 1：檢查最新訂單是否正處於充電中 (自動忽略超過 24 小時且 0kWh 的雲端殭屍訂單)
             last_order = get_active_order_id(self._client)
@@ -83,8 +85,8 @@ class WinChargeStartButton(ButtonEntity):
                             last_order,
                             duration,
                         )
-                except Exception:
-                    pass
+                except Exception as check_err:
+                    _LOGGER.debug("🐛 [WinCharge Button] 檢查舊訂單狀態時發生異常 (可忽略): %s", check_err)
 
             # 防護 2：檢查充電樁即時可用狀態
             charger_info = self._client.get_charger_info(charger_id)
@@ -96,6 +98,12 @@ class WinChargeStartButton(ButtonEntity):
             phone = account.get("contact")
             card_id = self._client.get_primary_card_id(charger_id)
             invoice = self._client.get_invoice_setting()
+
+            _LOGGER.debug(
+                "🐛 [WinCharge Button] 驗證成功 (Phone: %s, Card ID: %s)，發送建立交易請求...",
+                phone,
+                card_id,
+            )
 
             order_res = self._client.create_transaction_order(
                 charger_id=charger_id,
@@ -115,7 +123,7 @@ class WinChargeStartButton(ButtonEntity):
             if order_id:
                 await self._coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.error("開啟充電失敗: %s", err)
+            _LOGGER.error("開啟充電失敗: %s", err, exc_info=True)
 
 
 class WinChargeStopButton(ButtonEntity):
@@ -137,6 +145,7 @@ class WinChargeStopButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """點擊停止充電 (非同步線程安全模式)。"""
+        _LOGGER.debug("🐛 [WinCharge Button] 點擊【停止充電】按鈕，開始執行停止充電流程...")
 
         def _do_stop() -> bool:
             order_id = get_active_order_id(self._client)
@@ -158,15 +167,15 @@ class WinChargeStopButton(ButtonEntity):
                         state,
                     )
                     return False
-            except Exception:
-                pass
+            except Exception as check_err:
+                _LOGGER.debug("🐛 [WinCharge Button] 檢查停止訂單狀態時發生異常: %s", check_err)
 
             try:
                 self._client.stop_transaction(order_id)
                 _LOGGER.info("成功發送停止充電指令！Order ID: %s", order_id)
                 return True
             except Exception as err:
-                _LOGGER.error("停止充電失敗: %s", err)
+                _LOGGER.error("停止充電失敗: %s", err, exc_info=True)
                 # 若遇到 status 36 (ERROR_STOP_TRANSACTION)，代表該訂單在伺服器端已無法停止，自動解開卡住狀態
                 if "status: 36" in str(err) or "ERROR_STOP_TRANSACTION" in str(err):
                     _LOGGER.warning("⚠️ 訂單 [%s] 在伺服器端已無法停止 (status 36)，自動重置卡住狀態", order_id)
@@ -178,7 +187,7 @@ class WinChargeStopButton(ButtonEntity):
             if should_refresh:
                 await self._coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.error("停止充電執行異常: %s", err)
+            _LOGGER.error("停止充電執行異常: %s", err, exc_info=True)
 
 
 class WinChargeRefreshButton(ButtonEntity):
