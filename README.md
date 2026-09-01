@@ -77,19 +77,19 @@ uvx --from git+https://github.com/shuangrain/wincharge-cli.git wincharge-cli --j
 本工具支援兩種認證模式（帳號密碼雜湊登入模式 / JWT 直連模式），四個子指令與 Debug / JSON 調試功能，架構如下：
 
 ```mermaid
-graph TD
-    CLI["wincharge-cli CLI"] --> AuthCheck{"認證方式選擇"}
-    
-    AuthCheck -->|"帳號密碼雜湊模式 (推薦)"| AutoLogin["呼叫 POST /api/account/login (自訂小時數自動續約)"]
-    AuthCheck -->|"JWT Token 模式"| JWTValidate["解碼與本機驗證 JWT (iss/exp/perms)"]
-    
+flowchart TD
+    CLI["wincharge-cli CLI 控制工具"] --> AuthCheck{"選擇認證方式"}
+
+    AuthCheck -->|"方式一: 帳號密碼雜湊模式"| AutoLogin["POST /api/account/login (自動續約)"]
+    AuthCheck -->|"方式二: JWT Token 模式"| JWTValidate["驗證本機 JWT (iss, exp, perms)"]
+
     AutoLogin --> Subcommands{"選擇子指令"}
     JWTValidate --> Subcommands
-    
-    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化流程)"]
-    Subcommands -->|"status"| StatusFlow["查詢充電狀態 (線上抓取活躍訂單 + TOU分時統計)"]
-    Subcommands -->|"stop"| StopFlow["停止充電 (線上抓取活躍訂單 + TOU分時統計)"]
-    Subcommands -->|"history"| HistoryFlow["查詢歷史充電交易紀錄 (支援分頁 + TOU分時明細)"]
+
+    Subcommands -->|"start"| StartFlow["開啟充電 (6 步驟自動化)"]
+    Subcommands -->|"status"| StatusFlow["查詢狀態 (線上活躍訂單與分時統計)"]
+    Subcommands -->|"stop"| StopFlow["停止充電 (線上活躍訂單與結算)"]
+    Subcommands -->|"history"| HistoryFlow["查詢歷史 (分頁交易與分時明細)"]
 ```
 
 ---
@@ -117,32 +117,32 @@ graph TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as 使用者 / CLI
+    actor User as 使用者
     participant Script as wincharge-cli
     participant API as WinCharge API
 
-    User->>Script: 執行 `start` 指令
-    Script->>API: 檢查 Token (過期自動 POST /api/account/login 登入)
+    User->>Script: 執行 start 啟動充電指令
+    Script->>API: 檢查 Token 效期 (過期自動 POST /api/account/login 登入)
 
-    note over Script, API: 階段 1: 預檢作業 (Pre-checks)
+    Note over Script, API: 階段 1: 預檢作業
     Script->>API: GET /api/account
     API-->>Script: 回傳帳號資訊 (驗證 contact 手機號碼)
-    
-    Script->>API: GET /api/account/cards
-    API-->>Script: 回傳卡片列表 (確認 len > 0 並取得 primary card_id)
-    
-    Script->>API: GET /api/account/invoice
-    API-->>Script: 回傳發票設定 (取得 invoice 物件)
-    
-    Script->>API: GET /api/chargers/{charger_id}?connector=
-    API-->>Script: 回傳充電樁資訊 (確認可用狀態 available & 站點名稱)
 
-    note over Script, API: 階段 2: 建立訂單與啟動交易
-    Script->>API: POST /api/chargers/{charger_id}/transactions
+    Script->>API: GET /api/account/cards
+    API-->>Script: 回傳卡片列表 (取得預設 card_id)
+
+    Script->>API: GET /api/account/invoice
+    API-->>Script: 回傳發票設定 (取得 invoice 設定物件)
+
+    Script->>API: GET /api/chargers/CHARGER_ID
+    API-->>Script: 回傳充電樁資訊 (確認可用狀態 available)
+
+    Note over Script, API: 階段 2: 建立訂單與啟動交易
+    Script->>API: POST /api/chargers/CHARGER_ID/transactions
     API-->>Script: 建立訂單成功 (回傳 order_id 並寫入快取檔)
-    
-    Script->>API: PUT /api/transactions/{order_id}/start
-    API-->>Script: 正式啟動充電成功 (回傳 transaction_id & meter_start)
+
+    Script->>API: PUT /api/transactions/ORDER_ID/start
+    API-->>Script: 正式啟動充電成功 (回傳 transaction_id 與 meter_start)
 
     Script-->>User: 顯示啟動成功與訂單詳細資訊
 ```
